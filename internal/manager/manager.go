@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -30,9 +32,36 @@ const (
 	StateExited  = "exited"
 )
 
-var nameRegexp = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$`)
+// nameRegexp allows Unicode letters (incl. Chinese) and digits, plus space and
+// . _ - . File-safety checks (separators, reserved names, dots) live in ValidName.
+var nameRegexp = regexp.MustCompile(`^[\p{L}\p{N}][\p{L}\p{N} ._-]*$`)
 
-func ValidName(name string) bool { return nameRegexp.MatchString(name) }
+func ValidName(name string) bool {
+	n := len([]rune(name))
+	if n == 0 || n > 64 {
+		return false
+	}
+	if name != strings.TrimSpace(name) {
+		return false
+	}
+	if strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".") {
+		return false
+	}
+	if !nameRegexp.MatchString(name) {
+		return false
+	}
+	switch strings.ToUpper(name) {
+	case "CON", "PRN", "AUX", "NUL":
+		return false
+	}
+	for i := 1; i <= 9; i++ {
+		if strings.EqualFold(name, "COM"+strconv.Itoa(i)) ||
+			strings.EqualFold(name, "LPT"+strconv.Itoa(i)) {
+			return false
+		}
+	}
+	return true
+}
 
 // ProxyInfo is the UI-facing status of one proxy of an instance.
 type ProxyInfo struct {
@@ -54,8 +83,6 @@ type Info struct {
 	State       string        `json:"state"`
 	LastErr     string        `json:"lastErr,omitempty"`
 	StartedAt   string        `json:"startedAt,omitempty"`
-	ServerAddr  string        `json:"serverAddr,omitempty"`
-	ServerPort  int           `json:"serverPort,omitempty"`
 	AutoStart   bool          `json:"autoStart"`
 	Proxies     []ProxyInfo   `json:"proxies"`
 	Visitors    []VisitorInfo `json:"visitors,omitempty"`
@@ -249,10 +276,6 @@ func (i *Instance) Info() Info {
 		LastErr:   i.lastErr,
 		AutoStart: true,
 		Proxies:   []ProxyInfo{},
-	}
-	if i.common != nil {
-		info.ServerAddr = i.common.ServerAddr
-		info.ServerPort = i.common.ServerPort
 	}
 	if !i.startedAt.IsZero() && i.state == StateRunning {
 		info.StartedAt = i.startedAt.Format(time.RFC3339)
@@ -479,7 +502,7 @@ func (m *Manager) Restart(name string) error {
 // Create writes a new instance config (validated first) and starts it.
 func (m *Manager) Create(name, content string) error {
 	if !ValidName(name) {
-		return fmt.Errorf("invalid instance name %q: use letters, digits, dot, dash or underscore, at most 64 chars", name)
+		return fmt.Errorf("invalid instance name %q: use Chinese, letters, digits, space or . _ -, at most 64 chars", name)
 	}
 	m.mu.Lock()
 	_, exists := m.instances[name]
@@ -525,13 +548,17 @@ func (m *Manager) Create(name, content string) error {
 }
 
 // UpdateConfig replaces the instance config file (validated first); a running
-// instance is restarted to apply it.
-func (m *Manager) UpdateConfig(name, content string) error {
+// instance is restarted to apply it. When newName differs from the current
+// name, the config file is renamed and the instance re-registered as well.
+func (m *Manager) UpdateConfig(name, newName, content string) error {
 	m.mu.Lock()
 	inst, err := m.get(name)
 	m.mu.Unlock()
 	if err != nil {
 		return err
+	}
+	if newName == "" {
+		newName = name
 	}
 
 	tmpPath := inst.cfgPath + ".tmp"
@@ -543,9 +570,24 @@ func (m *Manager) UpdateConfig(name, content string) error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("config invalid: %w", err)
 	}
-	if err := os.Rename(tmpPath, inst.cfgPath); err != nil {
-		os.Remove(tmpPath)
-		return err
+
+	wantRename := newName != name
+	if wantRename {
+		if !ValidName(newName) {
+			os.Remove(tmpPath)
+			return fmt.Errorf("invalid instance name %q: use Chinese, letters, digits, space or . _ -, at most 64 chars", newName)
+		}
+		m.mu.Lock()
+		_, exists := m.instances[newName]
+		m.mu.Unlock()
+		if exists {
+			os.Remove(tmpPath)
+			return fmt.Errorf("instance %s already exists", newName)
+		}
+		if _, err := os.Stat(filepath.Join(m.dir, newName+".toml")); err == nil {
+			os.Remove(tmpPath)
+			return fmt.Errorf("config file for %s already exists", newName)
+		}
 	}
 
 	inst.mu.Lock()
@@ -553,6 +595,38 @@ func (m *Manager) UpdateConfig(name, content string) error {
 	inst.mu.Unlock()
 	if wasRunning {
 		inst.stop()
+	}
+
+	finalPath := inst.cfgPath
+	if wantRename {
+		finalPath = filepath.Join(m.dir, newName+".toml")
+	}
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	if wantRename {
+		if err := os.Remove(inst.cfgPath); err != nil {
+			log.Warnf("remove old config file of [%s]: %v", name, err)
+		}
+		inst.mu.Lock()
+		inst.Name = newName
+		inst.cfgPath = finalPath
+		inst.mu.Unlock()
+		m.mu.Lock()
+		delete(m.instances, name)
+		m.instances[newName] = inst
+		if m.stopped[name] {
+			delete(m.stopped, name)
+			m.stopped[newName] = true
+		}
+		_ = m.saveState()
+		m.mu.Unlock()
+		log.Infof("instance [%s] renamed to [%s]", name, newName)
+	}
+
+	if wasRunning {
 		return inst.start()
 	}
 	return nil

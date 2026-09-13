@@ -207,8 +207,8 @@
     <div class="modal-body">
       <div id="name-field">
         <label>实例名称</label>
-        <input id="inst-name" placeholder="例如：web-service" maxlength="64">
-        <div class="hint">仅限字母、数字与 . _ -，最长 64 字符；将作为配置文件名保存。</div>
+        <input id="inst-name" placeholder="例如：家里的小狗" maxlength="64">
+        <div class="hint">支持中文、字母、数字、空格及 . _ -，最长 64 字符；将作为配置文件名保存，可随时重命名。</div>
       </div>
       <div>
         <label>frpc 配置（TOML）</label>
@@ -345,7 +345,6 @@ function render() {
         <span class="state-label ${stateCls}">${STATE_LABELS[i.state] || i.state}</span>
       </div>
       <div class="meta">
-        ${i.serverAddr ? `<span>服务端 <code>${esc(i.serverAddr)}:${esc(i.serverPort)}</code></span>` : ''}
         ${i.startedAt ? `<span class="uptime" data-started="${esc(i.startedAt)}">${uptime(i.startedAt)}</span>` : ''}
         <span>代理 <b>${i.proxyOnline || 0}</b>/${(i.proxies || []).length} 在线</span>
       </div>
@@ -399,14 +398,12 @@ async function del(name) {
   await refresh();
 }
 
-function openModal(title, { name = '', config = TEMPLATE, lockName = false } = {}) {
+function openModal(title, { name = '', config = TEMPLATE } = {}) {
   $('modal-title').textContent = title;
   $('inst-name').value = name;
-  $('inst-name').disabled = lockName;
-  $('name-field').style.display = lockName ? 'none' : 'block';
   $('inst-config').value = config;
   $('modal-mask').classList.add('show');
-  if (!lockName) $('inst-name').focus();
+  if (!name) $('inst-name').focus();
 }
 
 function closeModal() { $('modal-mask').classList.remove('show'); }
@@ -414,7 +411,8 @@ function closeModal() { $('modal-mask').classList.remove('show'); }
 async function openEdit(name) {
   try {
     const data = await api(`/api/instances/${encodeURIComponent(name)}/config`);
-    openModal('编辑实例：' + name, { name, config: data.config, lockName: true });
+    editingName = name; // 标记编辑模式，save() 才会走更新而不是创建
+    openModal('编辑实例：' + name, { name, config: data.config });
   } catch (e) {
     toast('读取配置失败：' + e.message, 'error');
   }
@@ -426,10 +424,11 @@ async function save() {
   if (!name) { toast('请填写实例名称', 'error'); return; }
   try {
     if (editingName) {
+      const renamed = name !== editingName;
       await api(`/api/instances/${encodeURIComponent(editingName)}/config`, {
-        method: 'PUT', body: JSON.stringify({ config }),
+        method: 'PUT', body: JSON.stringify({ name, config }),
       });
-      toast('配置已保存并应用', 'success');
+      toast(renamed ? `已保存并重命名为「${name}」` : '配置已保存并应用', 'success');
     } else {
       await api('/api/instances', {
         method: 'POST', body: JSON.stringify({ name, config }),

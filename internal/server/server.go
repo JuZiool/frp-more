@@ -62,7 +62,7 @@ type versionInfo struct {
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, versionInfo{
-		AppVersion: "0.1.4",
+		AppVersion: "0.1.5",
 		FrpVersion: version.Full(),
 	})
 }
@@ -126,7 +126,7 @@ func (s *Server) handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.mgr.UpdateConfig(r.PathValue("name"), p.Config); err != nil {
+	if err := s.mgr.UpdateConfig(r.PathValue("name"), p.Name, p.Config); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
