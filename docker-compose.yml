@@ -1,0 +1,21 @@
+services:
+  frp-more:
+    build: .
+    image: frp-more:latest
+    container_name: frp-more
+    restart: unless-stopped
+    # 默认 host 网络：管理页面直接监听宿主机 :1332，
+    # 实例配置里的 localIP 可直接写内网 IP 或 127.0.0.1
+    network_mode: host
+    volumes:
+      - ./data:/data     # 实例配置持久化目录（data/instances/*.toml）
+    environment:
+      - TZ=Asia/Shanghai
+    # 需要更换管理端口时取消注释（host 模式下直接改监听端口）：
+    # command: ["-data", "/data", "-addr", ":8080"]
+    #
+    # Docker Desktop（Windows/macOS）或无法使用 host 网络时，注释掉上面的
+    # network_mode，改用端口映射，并把实例配置的 serverAddr 指向
+    # host.docker.internal（访问宿主机服务）：
+    # ports:
+    #   - "1332:1332"

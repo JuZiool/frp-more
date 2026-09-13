@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FRP-More · 客户端管理</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%232563eb'/%3E%3Ctext x='16' y='22' font-size='15' font-weight='700' font-family='sans-serif' fill='%23fff' text-anchor='middle'%3EF+%3C/text%3E%3C/svg%3E">
+<style>
+  :root {
+    --bg: #f4f6f9;
+    --card: #ffffff;
+    --border: #e5e9f0;
+    --text: #1c2430;
+    --text2: #64748b;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --green: #16a34a;
+    --red: #dc2626;
+    --amber: #d97706;
+    --gray: #94a3b8;
+    --radius: 12px;
+    --shadow: 0 1px 3px rgba(16, 24, 40, .07), 0 1px 2px rgba(16, 24, 40, .04);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  header {
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+    padding: 14px 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .logo {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 15px;
+  }
+  .brand h1 { font-size: 17px; font-weight: 650; }
+  .brand p { font-size: 12px; color: var(--text2); }
+  .badge {
+    font-size: 11px; color: var(--text2);
+    background: var(--bg); border: 1px solid var(--border);
+    border-radius: 999px; padding: 2px 10px; margin-left: 4px;
+  }
+  .spacer { flex: 1; }
+  .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 5px; display: inline-block; }
+  button { font-family: inherit; cursor: pointer; }
+  .btn {
+    border: 1px solid var(--border); background: var(--card); color: var(--text);
+    border-radius: 8px; padding: 7px 14px; font-size: 13px;
+    transition: all .15s;
+  }
+  .btn:hover { border-color: #cbd5e1; background: #f8fafc; }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 500; }
+  .btn.primary:hover { background: var(--accent-hover); }
+  .btn.danger-text { color: var(--red); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  main { max-width: 1180px; margin: 0 auto; padding: 24px 28px 60px; }
+
+  .stats { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+  .stat {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 14px 22px; box-shadow: var(--shadow); min-width: 130px;
+  }
+  .stat .num { font-size: 24px; font-weight: 700; }
+  .stat .label { font-size: 12px; color: var(--text2); }
+  .stat.green .num { color: var(--green); }
+  .stat.blue .num { color: var(--accent); }
+
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: var(--shadow); padding: 18px; display: flex; flex-direction: column; gap: 12px;
+  }
+  .card-head { display: flex; align-items: center; gap: 8px; }
+  .state-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+  .state-dot.running { background: var(--green); box-shadow: 0 0 0 3px rgba(22, 163, 74, .15); }
+  .state-dot.stopped { background: var(--gray); }
+  .state-dot.exited { background: var(--red); box-shadow: 0 0 0 3px rgba(220, 38, 38, .12); }
+  .inst-name { font-weight: 650; font-size: 15px; word-break: break-all; }
+  .state-label { font-size: 12px; padding: 1px 8px; border-radius: 999px; }
+  .state-label.running { color: var(--green); background: rgba(22,163,74,.1); }
+  .state-label.stopped { color: var(--text2); background: #f1f5f9; }
+  .state-label.exited { color: var(--red); background: rgba(220,38,38,.08); }
+  .meta { color: var(--text2); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .meta code { background: var(--bg); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
+  .err-line {
+    font-size: 12px; color: var(--red); background: rgba(220,38,38,.06);
+    border: 1px solid rgba(220,38,38,.15); border-radius: 8px; padding: 7px 10px;
+    word-break: break-all;
+  }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  th { text-align: left; color: var(--text2); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  td { padding: 5px 6px; border-bottom: 1px dashed #eef2f7; }
+  tr:last-child td { border-bottom: none; }
+  .phase { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+  .phase.running { color: var(--green); background: rgba(22,163,74,.1); }
+  .phase.error { color: var(--red); background: rgba(220,38,38,.08); }
+  .phase.warn { color: var(--amber); background: rgba(217,119,6,.1); }
+  .phase.gray { color: var(--text2); background: #f1f5f9; }
+  .addr { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; flex-wrap: wrap; }
+  .card-actions .btn { padding: 5px 11px; font-size: 12.5px; }
+
+  .empty {
+    border: 2px dashed #d3dae5; border-radius: var(--radius); padding: 70px 20px;
+    text-align: center; color: var(--text2); background: rgba(255,255,255,.5);
+  }
+  .empty .big { font-size: 40px; margin-bottom: 10px; }
+
+  .modal-mask {
+    position: fixed; inset: 0; background: rgba(15, 23, 42, .45);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 6vh 16px; z-index: 100;
+  }
+  .modal-mask.show { display: flex; }
+  .modal {
+    background: var(--card); border-radius: 14px; width: 680px; max-width: 100%;
+    box-shadow: 0 20px 50px rgba(0,0,0,.25); display: flex; flex-direction: column;
+    max-height: 88vh;
+  }
+  .modal-head { padding: 16px 22px; border-bottom: 1px solid var(--border); font-weight: 650; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+  .modal-close { border: none; background: none; font-size: 20px; color: var(--text2); line-height: 1; }
+  .modal-body { padding: 18px 22px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+  .modal-body label { font-size: 13px; font-weight: 500; display: block; margin-bottom: 5px; }
+  .modal-body input {
+    width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
+    font-size: 14px; font-family: inherit;
+  }
+  .modal-body input:focus, textarea:focus { outline: 2px solid rgba(37,99,235,.25); border-color: var(--accent); }
+  .hint { font-size: 12px; color: var(--text2); }
+  textarea {
+    width: 100%; min-height: 300px; border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px; font-family: ui-monospace, Consolas, "Courier New", monospace;
+    font-size: 12.5px; line-height: 1.6; resize: vertical; color: var(--text);
+  }
+  .modal-foot { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+
+  #toasts { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 200; }
+  .toast {
+    background: #1e293b; color: #fff; border-radius: 8px; padding: 10px 16px;
+    font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,.2); max-width: 420px;
+    animation: slide-in .2s ease; word-break: break-all;
+  }
+  .toast.error { background: var(--red); }
+  .toast.success { background: var(--green); }
+  @keyframes slide-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">F+</div>
+  <div class="brand">
+    <h1>FRP-More <span class="badge" id="version-badge">…</span></h1>
+    <p>FRP 客户端可视化管理 · 单容器多实例</p>
+  </div>
+  <div class="spacer"></div>
+  <span class="hint" id="refresh-hint"><span class="conn-dot"></span>自动刷新中</span>
+  <button class="btn" id="btn-rescan">扫描目录</button>
+  <button class="btn primary" id="btn-new">＋ 新建实例</button>
+</header>
+
+<main>
+  <div class="stats">
+    <div class="stat blue"><div class="num" id="stat-total">0</div><div class="label">实例总数</div></div>
+    <div class="stat green"><div class="num" id="stat-running">0</div><div class="label">运行中</div></div>
+    <div class="stat"><div class="num" id="stat-online">0</div><div class="label">代理在线</div></div>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div class="empty" id="empty" style="display:none">
+    <div class="big">📦</div>
+    <p><b>还没有任何实例</b></p>
+    <p>点击右上角「新建实例」创建第一个 frpc 配置，或将 .toml 配置文件放入数据目录后点击「扫描目录」。</p>
+  </div>
+</main>
+
+<div class="modal-mask" id="modal-mask">
+  <div class="modal">
+    <div class="modal-head">
+      <span id="modal-title">新建实例</span>
+      <button class="modal-close" id="modal-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="name-field">
+        <label>实例名称</label>
+        <input id="inst-name" placeholder="例如：web-service" maxlength="64">
+        <div class="hint">仅限字母、数字与 . _ -，最长 64 字符；将作为配置文件名保存。</div>
+      </div>
+      <div>
+        <label>frpc 配置（TOML）</label>
+        <textarea id="inst-config" spellcheck="false"></textarea>
+        <div class="hint">保存时会做完整校验；若实例正在运行，保存后自动重启生效。配置项参考
+          <a href="https://github.com/fatedier/frp/blob/dev/README_zh.md#%E9%85%8D%E7%BD%AE%E6%96%87%E4%BB%B6" target="_blank">frp 官方文档</a>。</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="modal-cancel">取消</button>
+      <button class="btn primary" id="modal-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+const TEMPLATE = `# frpc 实例配置（TOML 格式）
+serverAddr = "127.0.0.1"
+serverPort = 7000
+
+# 连接失败后保持重试，便于服务恢复后自动重连（推荐保留）
+loginFailExit = false
+
+[[proxies]]
+name = "web"
+type = "tcp"
+localIP = "127.0.0.1"
+localPort = 8080
+remotePort = 6001
+`;
+
+const PHASE_LABELS = {
+  'running':       { t: '运行中',     c: 'running' },
+  'start error':   { t: '启动失败',   c: 'error' },
+  'check failed':  { t: '检查失败',   c: 'error' },
+  'wait start':    { t: '等待启动',   c: 'warn' },
+  'new':           { t: '初始化',     c: 'gray' },
+  'not connected': { t: '未连接',     c: 'gray' },
+  'stopped':       { t: '已停止',     c: 'gray' },
+};
+const STATE_LABELS = {
+  'running': '运行中',
+  'stopped': '已停止',
+  'exited': '已退出',
+};
+
+let instances = [];
+let editingName = null;   // null = create mode
+let refreshTimer = null;
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+}[c]));
+
+function toast(msg, type = '') {
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.textContent = msg;
+  $('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 5000);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  return data;
+}
+
+function uptime(iso) {
+  if (!iso) return '';
+  const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+  if (s < 60) return '已运行 ' + s + ' 秒';
+  if (s < 3600) return '已运行 ' + Math.floor(s / 60) + ' 分 ' + (s % 60) + ' 秒';
+  if (s < 86400) return '已运行 ' + Math.floor(s / 3600) + ' 小时 ' + Math.floor(s % 3600 / 60) + ' 分';
+  return '已运行 ' + Math.floor(s / 86400) + ' 天';
+}
+
+function phaseBadge(p) {
+  const info = PHASE_LABELS[p] || { t: p, c: 'gray' };
+  return `<span class="phase ${info.c}">${esc(info.t)}</span>`;
+}
+
+function render() {
+  const total = instances.length;
+  const running = instances.filter(i => i.state === 'running').length;
+  const online = instances.reduce((n, i) => n + (i.proxyOnline || 0), 0);
+  $('stat-total').textContent = total;
+  $('stat-running').textContent = running;
+  $('stat-online').textContent = online;
+  $('empty').style.display = total ? 'none' : 'block';
+
+  $('grid').innerHTML = instances.map(i => {
+    const stateCls = i.state === 'running' ? 'running' : (i.state === 'exited' ? 'exited' : 'stopped');
+    const canStart = i.state !== 'running';
+    const proxies = (i.proxies || []).map(p => `
+      <tr>
+        <td>${esc(p.name)}</td>
+        <td>${esc(p.type)}</td>
+        <td>${phaseBadge(p.phase)}</td>
+        <td class="addr">${esc(p.remoteAddr || '-')}</td>
+      </tr>`).join('');
+    const proxyTable = (i.proxies || []).length ? `
+      <table>
+        <thead><tr><th>代理</th><th>类型</th><th>状态</th><th>远程地址</th></tr></thead>
+        <tbody>${proxies}</tbody>
+      </table>` : '<div class="hint">此实例未配置代理</div>';
+    const visitors = (i.visitors && i.visitors.length) ? `
+      <div class="meta">访问器：${i.visitors.map(v => esc(v.name) + ' (' + esc(v.type) + ')').join('、')}</div>` : '';
+    return `
+    <div class="card">
+      <div class="card-head">
+        <span class="state-dot ${stateCls}"></span>
+        <span class="inst-name">${esc(i.name)}</span>
+        <span class="state-label ${stateCls}">${STATE_LABELS[i.state] || i.state}</span>
+      </div>
+      <div class="meta">
+        ${i.serverAddr ? `<span>服务端 <code>${esc(i.serverAddr)}:${esc(i.serverPort)}</code></span>` : ''}
+        ${i.startedAt ? `<span>${uptime(i.startedAt)}</span>` : ''}
+        <span>代理 <b>${i.proxyOnline || 0}</b>/${(i.proxies || []).length} 在线</span>
+      </div>
+      ${i.lastErr ? `<div class="err-line">${esc(i.lastErr)}</div>` : ''}
+      ${proxyTable}
+      ${visitors}
+      <div class="card-actions">
+        ${canStart
+          ? `<button class="btn" onclick="act('start','${esc(i.name)}')">▶ 启动</button>`
+          : `<button class="btn" onclick="act('stop','${esc(i.name)}')">■ 停止</button>
+             <button class="btn" onclick="act('restart','${esc(i.name)}')">⟳ 重启</button>`}
+        <button class="btn" onclick="openEdit('${esc(i.name)}')">✎ 编辑</button>
+        <button class="btn danger-text" onclick="del('${esc(i.name)}')">🗑 删除</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function refresh(silent = true) {
+  try {
+    instances = await api('/api/instances');
+    render();
+    if (!silent) toast('已刷新', 'success');
+  } catch (e) {
+    if (!silent) toast('刷新失败：' + e.message, 'error');
+    $('refresh-hint').innerHTML = '<span class="conn-dot" style="background:var(--red)"></span>连接断开，重试中…';
+    return;
+  }
+  $('refresh-hint').innerHTML = '<span class="conn-dot"></span>自动刷新中';
+}
+
+async function act(action, name) {
+  try {
+    await api(`/api/instances/${encodeURIComponent(name)}/${action}`, { method: 'POST' });
+    toast(`实例 ${name} ${ {start:'已启动', stop:'已停止', restart:'已重启'}[action] }`, 'success');
+  } catch (e) {
+    toast(`操作失败：${e.message}`, 'error');
+  }
+  await refresh();
+}
+
+async function del(name) {
+  if (!confirm(`确定删除实例「${name}」吗？\n配置文件将从数据目录中移除，此操作不可恢复。`)) return;
+  try {
+    await api(`/api/instances/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    toast(`实例 ${name} 已删除`, 'success');
+  } catch (e) {
+    toast(`删除失败：${e.message}`, 'error');
+  }
+  await refresh();
+}
+
+function openModal(title, { name = '', config = TEMPLATE, lockName = false } = {}) {
+  $('modal-title').textContent = title;
+  $('inst-name').value = name;
+  $('inst-name').disabled = lockName;
+  $('name-field').style.display = lockName ? 'none' : 'block';
+  $('inst-config').value = config;
+  $('modal-mask').classList.add('show');
+  if (!lockName) $('inst-name').focus();
+}
+
+function closeModal() { $('modal-mask').classList.remove('show'); }
+
+async function openEdit(name) {
+  try {
+    const data = await api(`/api/instances/${encodeURIComponent(name)}/config`);
+    openModal('编辑实例：' + name, { name, config: data.config, lockName: true });
+  } catch (e) {
+    toast('读取配置失败：' + e.message, 'error');
+  }
+}
+
+async function save() {
+  const name = $('inst-name').value.trim();
+  const config = $('inst-config').value;
+  if (!name) { toast('请填写实例名称', 'error'); return; }
+  try {
+    if (editingName) {
+      await api(`/api/instances/${encodeURIComponent(editingName)}/config`, {
+        method: 'PUT', body: JSON.stringify({ config }),
+      });
+      toast('配置已保存并应用', 'success');
+    } else {
+      await api('/api/instances', {
+        method: 'POST', body: JSON.stringify({ name, config }),
+      });
+      toast(`实例 ${name} 已创建并启动`, 'success');
+    }
+    closeModal();
+  } catch (e) {
+    toast('保存失败：' + e.message, 'error');
+  }
+  await refresh();
+}
+
+$('btn-new').onclick = () => { editingName = null; openModal('新建实例'); };
+$('btn-rescan').onclick = async () => {
+  try {
+    instances = await api('/api/reload-dir', { method: 'POST' });
+    render();
+    toast('目录扫描完成', 'success');
+  } catch (e) { toast('扫描失败：' + e.message, 'error'); }
+};
+$('modal-close').onclick = closeModal;
+$('modal-cancel').onclick = closeModal;
+$('modal-save').onclick = save;
+$('modal-mask').onclick = (e) => { if (e.target === $('modal-mask')) closeModal(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+
+(async function init() {
+  try {
+    const v = await api('/api/version');
+    $('version-badge').textContent = 'v' + v.appVersion + ' · frp ' + v.frpVersion;
+  } catch (e) { /* badge is non-critical */ }
+  await refresh();
+  refreshTimer = setInterval(() => refresh(true), 4000);
+})();
+</script>
+</body>
+</html>

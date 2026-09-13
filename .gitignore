@@ -1,0 +1,4 @@
+data/
+*.exe
+ui-*.png
+.playwright-mcp/
