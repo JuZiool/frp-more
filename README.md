@@ -23,17 +23,28 @@ Linux 服务器一键部署（拉取 GHCR 镜像 + 初始化配置目录 + 启�
 curl -fsSL https://raw.githubusercontent.com/JuZiool/frp-more/main/install.sh | bash
 ```
 
-可选环境变量：`FRP_MORE_PORT`（管理端口，默认 1332）、`FRP_MORE_DIR`（数据目录，默认 `/opt/frp-more`）、`FRP_MORE_VERSION`（镜像版本，默认 `latest`）。
+可选环境变量：`FRP_MORE_PORT`（管理端口，默认 1332）、`FRP_MORE_DIR`（数据目录，默认 `/opt/frp-more`）、`FRP_MORE_VERSION`（镜像版本，默认 `latest`）、`FRP_MORE_USERNAME`（登录用户名，默认 `admin`）、`FRP_MORE_PASSWORD`（登录密码，默认 `admin123`）。
 
 手动部署：
 
 ```bash
 docker compose up -d
 # 或直接使用已发布的镜像：
-docker run -d --name frp-more --network host -v /opt/frp-more:/data --restart unless-stopped ghcr.io/juziool/frp-more:latest
+docker run -d --name frp-more --network host \
+  -e FRP_MORE_USERNAME=admin -e FRP_MORE_PASSWORD=admin123 \
+  -v /opt/frp-more:/data --restart unless-stopped \
+  ghcr.io/juziool/frp-more:latest
 ```
 
-打开 <http://localhost:1332>，点击「新建实例」，填入名称和 frpc 配置即可。配置持久化在 `./data/instances/*.toml`。
+打开 <http://localhost:1332>，使用默认账号登录：
+
+```text
+用户名：admin
+密码：admin123
+```
+
+登录后即可点击「新建实例」，填入名称和 frpc 配置。配置持久化在 `./data/instances/*.toml`。
+生产环境建议通过 `FRP_MORE_USERNAME` 和 `FRP_MORE_PASSWORD` 修改默认账号密码。
 
 默认使用 **host 网络模式**（`network_mode: host`）：管理页面直接监听宿主机 `:1332`，实例的 `localIP` 也可以直接写内网 IP 或 `127.0.0.1`。需要更换管理端口时，取消 compose 中 `command` 的注释并调整端口。
 
@@ -95,7 +106,10 @@ remotePort = 6001
 | POST | `/api/instances/{name}/restart` | 重启 |
 | DELETE | `/api/instances/{name}` | 删除实例及配置文件 |
 | POST | `/api/reload-dir` | 重新扫描数据目录 |
-| GET | `/api/version` | 版本信息 |
+| POST | `/api/login` | 登录 `{username, password}` |
+| GET | `/api/session` | 查询当前登录状态 |
+| POST | `/api/logout` | 退出登录 |
+| GET | `/api/version` | 版本信息（无需登录） |
 
 ## 架构
 

@@ -20,6 +20,9 @@ func main() {
 	logLevel := flag.String("log-level", "info", "log level")
 	flag.Parse()
 
+	authUsername := envOrDefault("FRP_MORE_USERNAME", "admin")
+	authPassword := envOrDefault("FRP_MORE_PASSWORD", "admin123")
+
 	// One global logger for the whole process: all embedded instances share it
 	// and it goes to stdout so `docker logs` picks it up.
 	// NOTE: frp only writes to stdout when the path is literally "console".
@@ -34,7 +37,10 @@ func main() {
 	}
 	mgr.ScanDir()
 
-	srv := server.New(mgr, logBuffer)
+	srv := server.New(mgr, logBuffer, server.AuthConfig{
+		Username: authUsername,
+		Password: authPassword,
+	})
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "listen %s: %v\n", *addr, err)
@@ -45,4 +51,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+func envOrDefault(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

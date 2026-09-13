@@ -3,11 +3,17 @@
 package server
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"net/http"
+	"strings"
+	"sync"
+	"time"
 
 	"github.com/fatedier/frp/pkg/util/version"
 
@@ -18,14 +24,45 @@ import (
 //go:embed static
 var staticFS embed.FS
 
+type AuthConfig struct {
+	Username string
+	Password string
+}
+
 type Server struct {
 	mgr  *manager.Manager
 	logs *logbuf.Buffer
+	auth AuthConfig
+
+	sessionsMu sync.Mutex
+	sessions   map[string]time.Time
 }
 
-func New(mgr *manager.Manager, logs *logbuf.Buffer) *http.Server {
-	s := &Server{mgr: mgr, logs: logs}
+const (
+	sessionCookie = "frp_more_session"
+	sessionTTL    = 24 * time.Hour
+)
+
+func New(mgr *manager.Manager, logs *logbuf.Buffer, auth AuthConfig) *http.Server {
+	if auth.Username == "" {
+		auth.Username = "admin"
+	}
+	if auth.Password == "" {
+		auth.Password = "admin123"
+	}
+	s := &Server{
+		mgr:      mgr,
+		logs:     logs,
+		auth:     auth,
+		sessions: make(map[string]time.Time),
+	}
 	mux := http.NewServeMux()
+
+	// Authentication API. The version and session endpoints are public so the
+	// embedded UI can decide whether to show the login form.
+	mux.HandleFunc("POST /api/login", s.handleLogin)
+	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("POST /api/logout", s.handleLogout)
 
 	// API
 	mux.HandleFunc("GET /api/version", s.handleVersion)
@@ -49,10 +86,115 @@ func New(mgr *manager.Manager, logs *logbuf.Buffer) *http.Server {
 
 	// noStore stops browsers from caching responses, so UI and API updates
 	// are always picked up without a manual hard refresh.
-	return &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		mux.ServeHTTP(w, r)
-	})}
+	return &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Cache-Control", "no-store")
+			if strings.HasPrefix(r.URL.Path, "/api/") && !s.publicAPI(r) && !s.authenticated(r) {
+				writeErr(w, http.StatusUnauthorized, errors.New("authentication required"))
+				return
+			}
+			mux.ServeHTTP(w, r)
+		}),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+}
+
+func (s *Server) publicAPI(r *http.Request) bool {
+	switch {
+	case r.Method == http.MethodPost && r.URL.Path == "/api/login":
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/session":
+		return true
+	case r.Method == http.MethodPost && r.URL.Path == "/api/logout":
+		return true
+	case r.Method == http.MethodGet && r.URL.Path == "/api/version":
+		return true
+	default:
+		return false
+	}
+}
+
+func (s *Server) authenticated(r *http.Request) bool {
+	cookie, err := r.Cookie(sessionCookie)
+	if err != nil || cookie.Value == "" {
+		return false
+	}
+	now := time.Now()
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	expires, ok := s.sessions[cookie.Value]
+	if !ok {
+		return false
+	}
+	if now.After(expires) {
+		delete(s.sessions, cookie.Value)
+		return false
+	}
+	return true
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var p struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := readJSON(r, &p); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	userOK := subtle.ConstantTimeCompare([]byte(p.Username), []byte(s.auth.Username)) == 1
+	passOK := subtle.ConstantTimeCompare([]byte(p.Password), []byte(s.auth.Password)) == 1
+	if !userOK || !passOK {
+		writeErr(w, http.StatusUnauthorized, errors.New("invalid username or password"))
+		return
+	}
+
+	var tokenBytes [32]byte
+	if _, err := rand.Read(tokenBytes[:]); err != nil {
+		writeErr(w, http.StatusInternalServerError, errors.New("create session failed"))
+		return
+	}
+	token := base64.RawURLEncoding.EncodeToString(tokenBytes[:])
+	s.sessionsMu.Lock()
+	s.sessions[token] = time.Now().Add(sessionTTL)
+	s.sessionsMu.Unlock()
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(sessionTTL / time.Second),
+	})
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "username": s.auth.Username})
+}
+
+func (s *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	if !s.authenticated(r) {
+		writeJSON(w, http.StatusUnauthorized, map[string]any{"authenticated": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"authenticated": true, "username": s.auth.Username})
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if cookie, err := r.Cookie(sessionCookie); err == nil {
+		s.sessionsMu.Lock()
+		delete(s.sessions, cookie.Value)
+		s.sessionsMu.Unlock()
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookie,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 type versionInfo struct {
@@ -88,7 +230,6 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, logsPayload{Lines: lines, Dropped: dropped})
 }
-
 
 type instancePayload struct {
 	Name   string `json:"name"`

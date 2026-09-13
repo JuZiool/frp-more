@@ -10,6 +10,8 @@
 #   FRP_MORE_DIR      数据目录        (默认 /opt/frp-more)
 #   FRP_MORE_VERSION  镜像版本        (默认 latest，可指定 v0.1)
 #   FRP_MORE_IMAGE    完整镜像地址    (默认 ghcr.io/juziool/frp-more:<版本>)
+#   FRP_MORE_USERNAME  登录用户名      (默认 admin)
+#   FRP_MORE_PASSWORD  登录密码        (默认 admin123)
 #
 # 示例: 指定端口和版本
 #   curl -fsSL https://raw.githubusercontent.com/JuZiool/frp-more/main/install.sh | \
@@ -21,6 +23,8 @@ FRP_MORE_PORT="${FRP_MORE_PORT:-1332}"
 FRP_MORE_DIR="${FRP_MORE_DIR:-/opt/frp-more}"
 FRP_MORE_VERSION="${FRP_MORE_VERSION:-latest}"
 FRP_MORE_IMAGE="${FRP_MORE_IMAGE:-ghcr.io/juziool/frp-more:${FRP_MORE_VERSION}}"
+FRP_MORE_USERNAME="${FRP_MORE_USERNAME:-admin}"
+FRP_MORE_PASSWORD="${FRP_MORE_PASSWORD:-admin123}"
 CONTAINER_NAME="frp-more"
 
 log()  { printf '\033[32m[FRP-More]\033[0m %s\n' "$*"; }
@@ -80,6 +84,8 @@ docker run -d \
   --restart unless-stopped \
   --network host \
   -e TZ="${TZ:-Asia/Shanghai}" \
+  -e FRP_MORE_USERNAME="${FRP_MORE_USERNAME}" \
+  -e FRP_MORE_PASSWORD="${FRP_MORE_PASSWORD}" \
   -v "${FRP_MORE_DIR}:/data" \
   "${FRP_MORE_IMAGE}" \
   -data /data -addr ":${FRP_MORE_PORT}" >/dev/null
@@ -97,6 +103,7 @@ log "部署完成!"
 cat <<EOF
 
   管理页面 : http://${SERVER_IP}:${FRP_MORE_PORT}
+  登录账号 : ${FRP_MORE_USERNAME}
   数据目录 : ${FRP_MORE_DIR}（实例配置: instances/*.toml）
   查看日志 : docker logs -f ${CONTAINER_NAME}
   停止服务 : docker rm -f ${CONTAINER_NAME}

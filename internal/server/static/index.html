@@ -172,6 +172,29 @@
   }
   .modal-foot { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
 
+
+  .login-mask {
+    position: fixed; inset: 0; background: rgba(15, 23, 42, .45);
+    display: none; align-items: center; justify-content: center;
+    padding: 20px; z-index: 300;
+  }
+  .login-mask.show { display: flex; }
+  .login-card {
+    width: 380px; max-width: 100%; background: var(--card); border-radius: 14px;
+    box-shadow: 0 20px 50px rgba(0,0,0,.25); padding: 28px;
+  }
+  .login-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+  .login-brand h2 { font-size: 20px; }
+  .login-brand p { color: var(--text2); font-size: 12px; margin-top: 2px; }
+  .login-card label { display: block; font-size: 13px; font-weight: 500; margin: 12px 0 5px; }
+  .login-card input {
+    width: 100%; border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; font-size: 14px; font-family: inherit;
+  }
+  .login-card input:focus { outline: 2px solid rgba(37,99,235,.25); border-color: var(--accent); }
+  .login-card .btn { width: 100%; margin-top: 18px; padding: 9px 14px; }
+  .login-error { min-height: 18px; color: var(--red); font-size: 12px; margin-top: 10px; }
+
   #toasts { position: fixed; right: 20px; bottom: 20px; display: flex; flex-direction: column; gap: 8px; z-index: 200; }
   .toast {
     background: #1e293b; color: #fff; border-radius: 8px; padding: 10px 16px;
@@ -209,6 +232,7 @@
     <button class="btn" id="btn-logs">日志</button>
     <button class="btn" id="btn-rescan">扫描目录</button>
     <button class="btn primary" id="btn-new">＋ 新建实例</button>
+    <button class="btn" id="btn-logout">退出登录</button>
   </div>
 </header>
 
@@ -264,6 +288,27 @@
   </div>
 </div>
 
+
+<div class="login-mask show" id="login-mask">
+  <div class="login-card" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <div class="login-brand">
+      <div class="logo">F+</div>
+      <div>
+        <h2 id="login-title">FRP-More</h2>
+        <p>登录管理面板</p>
+      </div>
+    </div>
+    <form id="login-form">
+      <label for="login-username">用户名</label>
+      <input id="login-username" autocomplete="username" value="admin" required>
+      <label for="login-password">密码</label>
+      <input id="login-password" type="password" autocomplete="current-password" required>
+      <div class="login-error" id="login-error" role="alert"></div>
+      <button class="btn primary" id="login-submit" type="submit">登录</button>
+    </form>
+  </div>
+</div>
+
 <div id="toasts"></div>
 
 <script>
@@ -300,11 +345,27 @@ const STATE_LABELS = {
 let instances = [];
 let editingName = null;   // null = create mode
 let refreshTimer = null;
+let loggedIn = false;
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({
   '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
 }[c]));
+
+function showLogin(message = '') {
+  loggedIn = false;
+  clearInterval(refreshTimer);
+  refreshTimer = null;
+  $('login-error').textContent = message;
+  $('login-mask').classList.add('show');
+  setTimeout(() => $('login-username').focus(), 0);
+}
+
+function hideLogin() {
+  loggedIn = true;
+  $('login-error').textContent = '';
+  $('login-mask').classList.remove('show');
+}
 
 function toast(msg, type = '') {
   const el = document.createElement('div');
@@ -321,7 +382,12 @@ async function api(path, opts = {}) {
     ...opts,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || ('HTTP ' + res.status));
+  if (!res.ok) {
+    const err = new Error(data.error || ('HTTP ' + res.status));
+    err.status = res.status;
+    if (res.status === 401 && path !== '/api/login' && path !== '/api/session') showLogin();
+    throw err;
+  }
   return data;
 }
 
@@ -465,6 +531,34 @@ async function save() {
   await refresh();
 }
 
+$('login-form').onsubmit = async (e) => {
+  e.preventDefault();
+  const btn = $('login-submit');
+  btn.disabled = true;
+  $('login-error').textContent = '';
+  try {
+    await api('/api/login', {
+      method: 'POST',
+      body: JSON.stringify({
+        username: $('login-username').value.trim(),
+        password: $('login-password').value,
+      }),
+    });
+    hideLogin();
+    await initApp();
+  } catch (e) {
+    $('login-error').textContent = e.status === 401 ? '用户名或密码错误' : '登录失败：' + e.message;
+    $('login-password').focus();
+  } finally {
+    btn.disabled = false;
+  }
+};
+
+$('btn-logout').onclick = async () => {
+  try { await api('/api/logout', { method: 'POST' }); } catch (e) { /* session may already be expired */ }
+  showLogin('已退出登录');
+};
+
 $('btn-new').onclick = () => { editingName = null; openModal('新建实例'); };
 $('btn-rescan').onclick = async () => {
   try {
@@ -531,13 +625,22 @@ setInterval(() => {
   });
 }, 1000);
 
+async function initApp() {
+  const v = await api('/api/version');
+  $('version-badge').textContent = 'v' + v.appVersion + ' · frp ' + v.frpVersion;
+  await refresh();
+  clearInterval(refreshTimer);
+  refreshTimer = setInterval(() => { if (loggedIn) refresh(true); }, 4000);
+}
+
 (async function init() {
   try {
-    const v = await api('/api/version');
-    $('version-badge').textContent = 'v' + v.appVersion + ' · frp ' + v.frpVersion;
-  } catch (e) { /* badge is non-critical */ }
-  await refresh();
-  refreshTimer = setInterval(() => refresh(true), 4000);
+    await api('/api/session');
+    hideLogin();
+    await initApp();
+  } catch (e) {
+    if (e.status !== 401) showLogin('无法连接到服务：' + e.message);
+  }
 })();
 </script>
 </body>

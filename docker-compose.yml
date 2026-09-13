@@ -10,7 +10,9 @@ services:
     volumes:
       - ./data:/data     # 实例配置持久化目录（data/instances/*.toml）
     environment:
-      - TZ=Asia/Shanghai
+      TZ: Asia/Shanghai
+      FRP_MORE_USERNAME: ${FRP_MORE_USERNAME:-admin}
+      FRP_MORE_PASSWORD: ${FRP_MORE_PASSWORD:-admin123}
     # 需要更换管理端口时取消注释（host 模式下直接改监听端口）：
     # command: ["-data", "/data", "-addr", ":8080"]
     #
