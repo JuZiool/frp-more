@@ -204,7 +204,7 @@ type versionInfo struct {
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, versionInfo{
-		AppVersion: "0.1.10",
+		AppVersion: "0.1.11",
 		FrpVersion: version.Full(),
 	})
 }
