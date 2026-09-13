@@ -1,0 +1,4 @@
+#!/bin/bash
+# 卸载后：保留 TRIM_PKGVAR 用户数据，仅清理临时文件
+rm -rf "${TRIM_APPTMP:-/dev/null}" 2>/dev/null
+exit 0

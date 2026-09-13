@@ -1,0 +1,53 @@
+#!/bin/bash
+# frp-more fnOS 生命周期脚本：处理 start / stop / status
+# 环境变量由 fnOS 提供：TRIM_APPDEST(应用文件) TRIM_PKGVAR(持久化数据)
+
+BIN="${TRIM_APPDEST}/app/bin/frp-more"
+DATA_DIR="${TRIM_PKGVAR}"
+LOG_FILE="${DATA_DIR}/frp-more.log"
+PID_FILE="${DATA_DIR}/frp-more.pid"
+
+is_running() {
+    [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null
+}
+
+case "$1" in
+start)
+    if is_running; then
+        exit 0
+    fi
+    rm -f "$PID_FILE"
+    mkdir -p "$DATA_DIR"
+    cd "$DATA_DIR" || exit 1
+    nohup "$BIN" -data "$DATA_DIR" -addr ":1332" >> "$LOG_FILE" 2>&1 &
+    echo $! > "$PID_FILE"
+    # 等待进程稳定，若立即退出则报告失败
+    sleep 2
+    if is_running; then
+        exit 0
+    fi
+    echo "frp-more 启动失败，请查看日志: ${LOG_FILE}" > "${TRIM_TEMP_LOGFILE:-/dev/stderr}"
+    exit 1
+    ;;
+stop)
+    if is_running; then
+        kill "$(cat "$PID_FILE")" 2>/dev/null
+        for _ in 1 2 3 4 5 6 7 8 9 10; do
+            is_running || break
+            sleep 1
+        done
+        is_running && kill -9 "$(cat "$PID_FILE")" 2>/dev/null
+    fi
+    rm -f "$PID_FILE"
+    exit 0
+    ;;
+status)
+    if is_running; then
+        exit 0
+    fi
+    exit 3
+    ;;
+*)
+    exit 1
+    ;;
+esac

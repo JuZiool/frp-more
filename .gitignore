@@ -1,4 +1,5 @@
 data/
 *.exe
-ui-*.png
+*.fpk
+fnos/build/
 .playwright-mcp/

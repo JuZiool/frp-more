@@ -42,6 +42,17 @@ docker run -d --name frp-more --network host -v /opt/frp-more:/data --restart un
 - **Linux 宿主机（默认 host 模式）**：无需额外配置，`localIP` 直接写 `127.0.0.1` 或内网 IP。
 - **Docker Desktop（Windows/macOS）或无法用 host 网络**：注释掉 compose 里的 `network_mode: host`，启用 `ports: ["1332:1332"]` 端口映射；此时 `localIP` 要写 Docker 网络内可达的地址，访问宿主机服务用 `host.docker.internal`。
 
+## 飞牛 fnOS 原生安装（无需 Docker）
+
+提供 fnOS 应用包（fpk，x86_64），以原生进程运行，不依赖 Docker：
+
+1. 从 [Releases](https://github.com/JuZiool/frp-more/releases) 下载 `frp-more-x.y.z.fpk`
+2. fnOS 应用中心 → 设置 → **手动安装应用**，选择 fpk 文件
+3. 安装后桌面出现 FRP-More 图标，点击进入管理页面（监听 `1332` 端口）
+4. 实例配置持久保存在应用数据目录（`var/`），升级、重启不丢失；应用中心可直接启动/停止服务
+
+打包方式：`./fnos/build.sh <版本号>`（需安装 [fnpack](https://developer.fnnas.com/docs/cli/fnpack/)），发布流水线会在打 tag 时自动构建并附加到 Release。
+
 ## 本地开发（不用 Docker）
 
 需要 Go ≥ 1.25：
@@ -119,7 +130,12 @@ frp-more/
 │   ├── server/server.go         # REST API + 嵌入式静态页面
 │   └── server/static/index.html # 管理页面（单文件，无外部依赖）
 ├── install.sh                   # 一键部署脚本（拉镜像 + 初始化配置）
-├── .github/workflows/docker.yml # 打 tag 自动构建多架构镜像并推送 GHCR
+├── fnos/                        # 飞牛 fnOS 原生应用包（fpk）打包目录
+│   ├── manifest / config/       # 包元信息与权限声明
+│   ├── cmd/                     # 安装/启停/卸载生命周期脚本
+│   ├── app/ui/config            # 桌面入口（应用卡片打开网页）
+│   └── build.sh                 # fpk 构建脚本
+├── .github/workflows/docker.yml # 打 tag 自动构建镜像(GHCR) + fpk 并附到 Release
 ├── Dockerfile                   # 两阶段构建（golang → alpine）
 ├── docker-compose.yml
 └── data/                        # 运行时数据（instances/*.toml、state.json）

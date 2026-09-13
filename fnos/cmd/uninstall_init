@@ -1,0 +1,10 @@
+#!/bin/bash
+# 卸载前：停止运行中的服务（保留用户数据）
+PID_FILE="${TRIM_PKGVAR}/frp-more.pid"
+if [ -f "$PID_FILE" ]; then
+    kill "$(cat "$PID_FILE")" 2>/dev/null
+    sleep 1
+    kill -9 "$(cat "$PID_FILE")" 2>/dev/null
+    rm -f "$PID_FILE"
+fi
+exit 0

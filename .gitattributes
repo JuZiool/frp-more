@@ -4,4 +4,8 @@
 *.yaml text eol=lf
 *.toml text eol=lf
 *.go text eol=lf
+fnos/cmd/main text eol=lf
+fnos/manifest text eol=lf
+fnos/app/ui/config text eol=lf
+fnos/config/privilege text eol=lf
 *.png binary

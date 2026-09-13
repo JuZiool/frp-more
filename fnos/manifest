@@ -1,0 +1,13 @@
+appname               = frp-more
+version               = __VERSION__
+display_name          = FRP-More
+desc                  = FRP 客户端可视化管理面板：单进程运行多个 frpc 实例，网页统一管理配置、启停与代理状态。基于 frp v0.71.0 内嵌实现，原生运行无需 Docker。
+source                = thirdparty
+platform              = x86
+maintainer            = JuZiool
+maintainer_url        = https://github.com/JuZiool/frp-more
+os_min_version        = 1.2.0
+desktop_uidir         = ui
+desktop_applaunchname = frp-more.Application
+service_port          = 1332
+changelog             = FRP 客户端可视化管理面板

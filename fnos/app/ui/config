@@ -1,0 +1,13 @@
+{
+    ".url": {
+        "frp-more.Application": {
+            "title": "FRP-More",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "http",
+            "port": "1332",
+            "url": "/",
+            "allUsers": false
+        }
+    }
+}
