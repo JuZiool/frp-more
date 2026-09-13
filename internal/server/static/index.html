@@ -122,7 +122,7 @@
   .phase.gray { color: var(--text2); background: #f1f5f9; }
   .addr { font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
   .card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; flex-wrap: wrap; }
-  .card-actions .btn { padding: 5px 11px; font-size: 12.5px; }
+  .card-actions .btn { padding: 5px 10px; font-size: 12.5px; }
 
   .empty {
     border: 2px dashed #d3dae5; border-radius: var(--radius); padding: 70px 20px;
@@ -349,12 +349,12 @@ function render() {
       ${visitors}
       <div class="card-actions">
         ${canStart
-          ? `<button class="btn" onclick="act('start','${esc(i.name)}')">▶ 启动</button>`
-          : `<button class="btn" onclick="act('stop','${esc(i.name)}')">■ 停止</button>
-             <button class="btn" onclick="act('restart','${esc(i.name)}')">⟳ 重启</button>`}
-        <button class="btn" onclick="openLogs('${esc(i.name)}')">📄 日志</button>
-        <button class="btn" onclick="openEdit('${esc(i.name)}')">✎ 编辑</button>
-        <button class="btn danger-text" onclick="del('${esc(i.name)}')">🗑 删除</button>
+          ? `<button class="btn" title="启动实例" onclick="act('start','${esc(i.name)}')">启动</button>`
+          : `<button class="btn" title="停止实例" onclick="act('stop','${esc(i.name)}')">停止</button>
+             <button class="btn" title="重启实例" onclick="act('restart','${esc(i.name)}')">重启</button>`}
+        <button class="btn" title="查看日志" onclick="openLogs('${esc(i.name)}')">日志</button>
+        <button class="btn" title="编辑配置" onclick="openEdit('${esc(i.name)}')">编辑</button>
+        <button class="btn danger-text" title="删除实例" onclick="del('${esc(i.name)}')">删除</button>
       </div>
     </div>`;
   }).join('');
