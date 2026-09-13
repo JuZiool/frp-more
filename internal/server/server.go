@@ -11,6 +11,7 @@ import (
 
 	"github.com/fatedier/frp/pkg/util/version"
 
+	"frp-more/internal/logbuf"
 	"frp-more/internal/manager"
 )
 
@@ -18,11 +19,12 @@ import (
 var staticFS embed.FS
 
 type Server struct {
-	mgr *manager.Manager
+	mgr  *manager.Manager
+	logs *logbuf.Buffer
 }
 
-func New(mgr *manager.Manager) *http.Server {
-	s := &Server{mgr: mgr}
+func New(mgr *manager.Manager, logs *logbuf.Buffer) *http.Server {
+	s := &Server{mgr: mgr, logs: logs}
 	mux := http.NewServeMux()
 
 	// API
@@ -30,6 +32,7 @@ func New(mgr *manager.Manager) *http.Server {
 	mux.HandleFunc("GET /api/instances", s.handleList)
 	mux.HandleFunc("POST /api/instances", s.handleCreate)
 	mux.HandleFunc("POST /api/reload-dir", s.handleReloadDir)
+	mux.HandleFunc("GET /api/logs", s.handleLogs)
 	mux.HandleFunc("GET /api/instances/{name}/config", s.handleGetConfig)
 	mux.HandleFunc("PUT /api/instances/{name}/config", s.handlePutConfig)
 	mux.HandleFunc("POST /api/instances/{name}/start", s.handleStart)
@@ -54,7 +57,7 @@ type versionInfo struct {
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, versionInfo{
-		AppVersion: "0.1.0",
+		AppVersion: "0.1.1",
 		FrpVersion: version.Full(),
 	})
 }
@@ -66,6 +69,19 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleReloadDir(w http.ResponseWriter, r *http.Request) {
 	s.mgr.ScanDir()
 	writeJSON(w, http.StatusOK, s.mgr.List())
+}
+
+type logsPayload struct {
+	Lines   []string `json:"lines"`
+	Dropped int      `json:"dropped"`
+}
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	lines, dropped := s.logs.Snapshot()
+	if lines == nil {
+		lines = []string{}
+	}
+	writeJSON(w, http.StatusOK, logsPayload{Lines: lines, Dropped: dropped})
 }
 
 type instancePayload struct {
@@ -146,6 +162,7 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }

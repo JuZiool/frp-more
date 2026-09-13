@@ -68,6 +68,22 @@
   .btn:disabled { opacity: .5; cursor: not-allowed; }
   main { max-width: 1180px; margin: 0 auto; padding: 24px 28px 60px; }
 
+  #log-view {
+    min-height: 300px; max-height: 52vh; overflow: auto;
+    background: #0f172a; color: #cbd5e1;
+    font-family: ui-monospace, Consolas, "Courier New", monospace;
+    font-size: 12px; line-height: 1.55;
+    padding: 12px 14px; border-radius: 8px;
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .log-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .log-toolbar input[type=text] {
+    flex: 1; min-width: 160px; border: 1px solid var(--border); border-radius: 8px;
+    padding: 7px 12px; font-size: 13px; font-family: ui-monospace, Consolas, monospace;
+  }
+  .log-toolbar label { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text2); white-space: nowrap; cursor: pointer; }
+  .log-meta { font-size: 12px; color: var(--text2); }
+
   .stats { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
   .stat {
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
@@ -93,7 +109,7 @@
   .state-label.running { color: var(--green); background: rgba(22,163,74,.1); }
   .state-label.stopped { color: var(--text2); background: #f1f5f9; }
   .state-label.exited { color: var(--red); background: rgba(220,38,38,.08); }
-  .meta { color: var(--text2); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+  .meta { color: var(--text2); font-size: 12.5px; display: flex; flex-wrap: wrap; gap: 4px 14px; word-break: break-all; }
   .meta code { background: var(--bg); padding: 1px 6px; border-radius: 5px; font-size: 12px; }
   .err-line {
     font-size: 12px; color: var(--red); background: rgba(220,38,38,.06);
@@ -101,8 +117,13 @@
     word-break: break-all;
   }
   table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  th { text-align: left; color: var(--text2); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--border); }
+  th { text-align: left; color: var(--text2); font-weight: 500; padding: 4px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
   td { padding: 5px 6px; border-bottom: 1px dashed #eef2f7; }
+  .proxy-name {
+    display: inline-block; max-width: 148px; vertical-align: bottom;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+  }
   tr:last-child td { border-bottom: none; }
   .phase { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
   .phase.running { color: var(--green); background: rgba(22,163,74,.1); }
@@ -168,6 +189,7 @@
   </div>
   <div class="spacer"></div>
   <span class="hint" id="refresh-hint"><span class="conn-dot"></span>自动刷新中</span>
+  <button class="btn" id="btn-logs">日志</button>
   <button class="btn" id="btn-rescan">扫描目录</button>
   <button class="btn primary" id="btn-new">＋ 新建实例</button>
 </header>
@@ -208,6 +230,23 @@
     <div class="modal-foot">
       <button class="btn" id="modal-cancel">取消</button>
       <button class="btn primary" id="modal-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="log-mask">
+  <div class="modal">
+    <div class="modal-head">
+      <span>实时日志（最近 2000 行）</span>
+      <button class="modal-close" id="log-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="log-toolbar">
+        <input type="text" id="log-filter" placeholder="筛选关键字，例如实例名 / 代理名 / runID…">
+        <label><input type="checkbox" id="log-follow" checked> 自动刷新</label>
+        <span class="log-meta" id="log-meta"></span>
+      </div>
+      <div id="log-view"></div>
     </div>
   </div>
 </div>
@@ -265,6 +304,7 @@ function toast(msg, type = '') {
 async function api(path, opts = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
     ...opts,
   });
   const data = await res.json().catch(() => ({}));
@@ -300,7 +340,7 @@ function render() {
     const canStart = i.state !== 'running';
     const proxies = (i.proxies || []).map(p => `
       <tr>
-        <td>${esc(p.name)}</td>
+        <td><span class="proxy-name" title="${esc(p.name)}">${esc(p.name)}</span></td>
         <td>${esc(p.type)}</td>
         <td>${phaseBadge(p.phase)}</td>
         <td class="addr">${esc(p.remoteAddr || '-')}</td>
@@ -321,7 +361,7 @@ function render() {
       </div>
       <div class="meta">
         ${i.serverAddr ? `<span>服务端 <code>${esc(i.serverAddr)}:${esc(i.serverPort)}</code></span>` : ''}
-        ${i.startedAt ? `<span>${uptime(i.startedAt)}</span>` : ''}
+        ${i.startedAt ? `<span class="uptime" data-started="${esc(i.startedAt)}">${uptime(i.startedAt)}</span>` : ''}
         <span>代理 <b>${i.proxyOnline || 0}</b>/${(i.proxies || []).length} 在线</span>
       </div>
       ${i.lastErr ? `<div class="err-line">${esc(i.lastErr)}</div>` : ''}
@@ -332,6 +372,7 @@ function render() {
           ? `<button class="btn" onclick="act('start','${esc(i.name)}')">▶ 启动</button>`
           : `<button class="btn" onclick="act('stop','${esc(i.name)}')">■ 停止</button>
              <button class="btn" onclick="act('restart','${esc(i.name)}')">⟳ 重启</button>`}
+        <button class="btn" onclick="openLogs('${esc(i.name)}')">📄 日志</button>
         <button class="btn" onclick="openEdit('${esc(i.name)}')">✎ 编辑</button>
         <button class="btn danger-text" onclick="del('${esc(i.name)}')">🗑 删除</button>
       </div>
@@ -429,7 +470,58 @@ $('modal-close').onclick = closeModal;
 $('modal-cancel').onclick = closeModal;
 $('modal-save').onclick = save;
 $('modal-mask').onclick = (e) => { if (e.target === $('modal-mask')) closeModal(); };
-document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeModal(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeModal(); closeLogs(); } });
+
+// ---------- 日志查看 ----------
+let logTimer = null;
+let logLines = [];
+
+function renderLogs(dropped) {
+  const kw = $('log-filter').value.trim().toLowerCase();
+  const shown = kw ? logLines.filter(l => l.toLowerCase().includes(kw)) : logLines;
+  const view = $('log-view');
+  const atBottom = view.scrollTop + view.clientHeight >= view.scrollHeight - 30;
+  view.textContent = shown.join('\n') || (kw ? '（无匹配日志）' : '（暂无日志）');
+  $('log-meta').textContent =
+    `显示 ${shown.length} / 共 ${logLines.length} 行` + (dropped ? ` · 已丢弃更早 ${dropped} 行` : '');
+  if (atBottom) view.scrollTop = view.scrollHeight;
+}
+
+async function refreshLogs() {
+  try {
+    const data = await api('/api/logs');
+    logLines = data.lines || [];
+    renderLogs(data.dropped || 0);
+  } catch (e) { /* 弹窗关闭或网络波动时静默 */ }
+}
+
+function openLogs(filter = '') {
+  $('log-filter').value = filter;
+  $('log-mask').classList.add('show');
+  refreshLogs();
+  clearInterval(logTimer);
+  logTimer = setInterval(() => {
+    if ($('log-follow').checked) refreshLogs();
+  }, 2000);
+}
+
+function closeLogs() {
+  $('log-mask').classList.remove('show');
+  clearInterval(logTimer);
+  logTimer = null;
+}
+
+$('btn-logs').onclick = () => openLogs('');
+$('log-close').onclick = closeLogs;
+$('log-filter').oninput = renderLogs;
+$('log-mask').onclick = (e) => { if (e.target === $('log-mask')) closeLogs(); };
+
+// 时长本地每秒跳动，不依赖接口轮询
+setInterval(() => {
+  document.querySelectorAll('.uptime').forEach(el => {
+    if (el.dataset.started) el.textContent = uptime(el.dataset.started);
+  });
+}, 1000);
 
 (async function init() {
   try {

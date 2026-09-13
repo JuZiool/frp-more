@@ -9,6 +9,7 @@ import (
 
 	"github.com/fatedier/frp/pkg/util/log"
 
+	"frp-more/internal/logbuf"
 	"frp-more/internal/manager"
 	"frp-more/internal/server"
 )
@@ -23,6 +24,8 @@ func main() {
 	// and it goes to stdout so `docker logs` picks it up.
 	// NOTE: frp only writes to stdout when the path is literally "console".
 	log.InitLogger("console", *logLevel, 0, false)
+	// Also keep the most recent lines in memory for the UI log viewer.
+	logBuffer := logbuf.Attach(2000)
 
 	mgr, err := manager.NewManager(*dataDir)
 	if err != nil {
@@ -31,7 +34,7 @@ func main() {
 	}
 	mgr.ScanDir()
 
-	srv := server.New(mgr)
+	srv := server.New(mgr, logBuffer)
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "listen %s: %v\n", *addr, err)
