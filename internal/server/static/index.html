@@ -417,11 +417,11 @@ function render() {
         <td><span class="proxy-name" title="${esc(p.name)}">${esc(p.name)}</span></td>
         <td>${esc(p.type)}</td>
         <td>${phaseBadge(p.phase)}</td>
-        <td class="addr">${esc(p.remoteAddr || '-')}</td>
+        <td class="addr">${esc(String(p.remoteAddr || '-').replace(/^:/, ''))}</td>
       </tr>`).join('');
     const proxyTable = (i.proxies || []).length ? `
       <table>
-        <thead><tr><th>代理</th><th>类型</th><th>状态</th><th>远程地址</th></tr></thead>
+        <thead><tr><th>代理</th><th>类型</th><th>状态</th><th>远程端口</th></tr></thead>
         <tbody>${proxies}</tbody>
       </table>` : '<div class="hint">此实例未配置代理</div>';
     const visitors = (i.visitors && i.visitors.length) ? `
