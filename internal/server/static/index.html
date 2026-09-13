@@ -46,7 +46,9 @@
     display: flex; align-items: center; justify-content: center;
     color: #fff; font-weight: 700; font-size: 15px;
   }
+  .brand { min-width: 0; }
   .brand h1 { font-size: 17px; font-weight: 650; }
+  .brand h1 .app-name { white-space: nowrap; }
   .brand p { font-size: 12px; color: var(--text2); }
   .badge {
     font-size: 11px; color: var(--text2);
@@ -54,11 +56,13 @@
     border-radius: 999px; padding: 2px 10px; margin-left: 4px;
   }
   .spacer { flex: 1; }
+  .header-actions { display: flex; gap: 10px; flex: none; }
+  #refresh-hint { flex: none; }
   .conn-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); margin-right: 5px; display: inline-block; }
   button { font-family: inherit; cursor: pointer; }
   .btn {
     border: 1px solid var(--border); background: var(--card); color: var(--text);
-    border-radius: 8px; padding: 7px 14px; font-size: 13px;
+    border-radius: 8px; padding: 7px 14px; font-size: 13px; white-space: nowrap;
     transition: all .15s;
   }
   .btn:hover { border-color: #cbd5e1; background: #f8fafc; }
@@ -93,7 +97,7 @@
   }
   .log-meta { font-size: 12px; color: var(--text2); flex: none; white-space: nowrap; }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: 16px; }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
     box-shadow: var(--shadow); padding: 18px; display: flex; flex-direction: column; gap: 12px;
@@ -177,6 +181,18 @@
   .toast.error { background: var(--red); }
   .toast.success { background: var(--green); }
   @keyframes slide-in { from { transform: translateY(8px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* 窄屏：头部允许换行，操作按钮整行铺开，避免被挤压成竖排文字 */
+  @media (max-width: 640px) {
+    header { flex-wrap: wrap; padding: 12px 16px; row-gap: 10px; }
+    .brand { flex: 1 1 auto; }
+    .brand h1 { font-size: 16px; }
+    .header-actions { flex: 1 1 100%; order: 10; }
+    .header-actions .btn { flex: 1; padding: 8px 10px; }
+    main { padding: 16px 16px 60px; }
+    .card { padding: 14px; }
+    .toast { max-width: calc(100vw - 40px); }
+  }
 </style>
 </head>
 <body>
@@ -184,14 +200,16 @@
 <header>
   <div class="logo">F+</div>
   <div class="brand">
-    <h1>FRP-More <span class="badge" id="version-badge">…</span></h1>
+    <h1><span class="app-name">FRP-More</span> <span class="badge" id="version-badge">…</span></h1>
     <p>FRP 客户端可视化管理 · 单容器多实例</p>
   </div>
   <div class="spacer"></div>
   <span class="hint" id="refresh-hint"><span class="conn-dot"></span>自动刷新中</span>
-  <button class="btn" id="btn-logs">日志</button>
-  <button class="btn" id="btn-rescan">扫描目录</button>
-  <button class="btn primary" id="btn-new">＋ 新建实例</button>
+  <div class="header-actions">
+    <button class="btn" id="btn-logs">日志</button>
+    <button class="btn" id="btn-rescan">扫描目录</button>
+    <button class="btn primary" id="btn-new">＋ 新建实例</button>
+  </div>
 </header>
 
 <main>

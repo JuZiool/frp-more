@@ -313,6 +313,9 @@ func (i *Instance) Info() Info {
 
 // Manager owns the instance registry and the persisted stopped-state set.
 type Manager struct {
+	// opMu serializes mutating operations so config replacement and rollback
+	// cannot interleave with another lifecycle or file operation.
+	opMu      sync.Mutex
 	mu        sync.Mutex
 	dir       string
 	statePath string
@@ -379,6 +382,8 @@ func (m *Manager) saveState() error {
 // auto-starting them unless the persisted state marks them stopped. Instances
 // whose file disappeared are removed (after being stopped).
 func (m *Manager) ScanDir() {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -457,6 +462,8 @@ func (m *Manager) List() []Info {
 }
 
 func (m *Manager) Start(name string) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.Lock()
 	inst, err := m.get(name)
 	m.mu.Unlock()
@@ -474,6 +481,8 @@ func (m *Manager) Start(name string) error {
 }
 
 func (m *Manager) Stop(name string) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.Lock()
 	inst, err := m.get(name)
 	m.mu.Unlock()
@@ -489,6 +498,8 @@ func (m *Manager) Stop(name string) error {
 }
 
 func (m *Manager) Restart(name string) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.Lock()
 	inst, err := m.get(name)
 	m.mu.Unlock()
@@ -501,6 +512,8 @@ func (m *Manager) Restart(name string) error {
 
 // Create writes a new instance config (validated first) and starts it.
 func (m *Manager) Create(name, content string) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	if !ValidName(name) {
 		return fmt.Errorf("invalid instance name %q: use Chinese, letters, digits, space or . _ -, at most 64 chars", name)
 	}
@@ -547,10 +560,61 @@ func (m *Manager) Create(name, content string) error {
 	return saveErr
 }
 
+func writeTempConfig(dir, base string, content []byte) (string, error) {
+	f, err := os.CreateTemp(dir, "."+base+"-*.tmp")
+	if err != nil {
+		return "", err
+	}
+	path := f.Name()
+	cleanup := func() {
+		_ = f.Close()
+		_ = os.Remove(path)
+	}
+	if err := f.Chmod(0o644); err != nil {
+		cleanup()
+		return "", err
+	}
+	if _, err := f.Write(content); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := f.Sync(); err != nil {
+		cleanup()
+		return "", err
+	}
+	if err := f.Close(); err != nil {
+		_ = os.Remove(path)
+		return "", err
+	}
+	return path, nil
+}
+
+func replaceFile(src, dst string) error {
+	if err := os.Rename(src, dst); err == nil {
+		return nil
+	} else {
+		// Windows may refuse to rename over an existing file. Only remove the
+		// destination after confirming it exists, then retry the replacement.
+		if _, statErr := os.Stat(dst); statErr != nil {
+			return err
+		}
+		if removeErr := os.Remove(dst); removeErr != nil {
+			return fmt.Errorf("replace destination: %w", removeErr)
+		}
+		if retryErr := os.Rename(src, dst); retryErr != nil {
+			return fmt.Errorf("rename replacement: %w", retryErr)
+		}
+		return nil
+	}
+}
+
 // UpdateConfig replaces the instance config file (validated first); a running
 // instance is restarted to apply it. When newName differs from the current
 // name, the config file is renamed and the instance re-registered as well.
 func (m *Manager) UpdateConfig(name, newName, content string) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+
 	m.mu.Lock()
 	inst, err := m.get(name)
 	m.mu.Unlock()
@@ -561,55 +625,91 @@ func (m *Manager) UpdateConfig(name, newName, content string) error {
 		newName = name
 	}
 
-	tmpPath := inst.cfgPath + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(content), 0o644); err != nil {
+	if !ValidName(newName) {
+		return fmt.Errorf("invalid instance name %q: use Chinese, letters, digits, space or . _ -, at most 64 chars", newName)
+	}
+	oldPath := inst.cfgPath
+	oldConfig, err := os.ReadFile(oldPath)
+	if err != nil {
+		return fmt.Errorf("read current config: %w", err)
+	}
+
+	tmpPath, err := writeTempConfig(filepath.Dir(oldPath), filepath.Base(oldPath), []byte(content))
+	if err != nil {
 		return err
 	}
+	cleanupTemp := func() {
+		if tmpPath != "" {
+			_ = os.Remove(tmpPath)
+		}
+	}
+	defer cleanupTemp()
+
 	check := newInstance(name, tmpPath, m.unsafe)
 	if _, _, _, _, err := check.buildAggregator(); err != nil {
-		os.Remove(tmpPath)
 		return fmt.Errorf("config invalid: %w", err)
 	}
 
 	wantRename := newName != name
+	finalPath := oldPath
 	if wantRename {
-		if !ValidName(newName) {
-			os.Remove(tmpPath)
-			return fmt.Errorf("invalid instance name %q: use Chinese, letters, digits, space or . _ -, at most 64 chars", newName)
-		}
+		finalPath = filepath.Join(m.dir, newName+".toml")
 		m.mu.Lock()
 		_, exists := m.instances[newName]
 		m.mu.Unlock()
 		if exists {
-			os.Remove(tmpPath)
 			return fmt.Errorf("instance %s already exists", newName)
 		}
-		if _, err := os.Stat(filepath.Join(m.dir, newName+".toml")); err == nil {
-			os.Remove(tmpPath)
+		if _, err := os.Stat(finalPath); err == nil {
 			return fmt.Errorf("config file for %s already exists", newName)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("check config file for %s: %w", newName, err)
 		}
 	}
 
 	inst.mu.Lock()
 	wasRunning := inst.state == StateRunning
 	inst.mu.Unlock()
+	wasStopped := false
+	if wantRename {
+		m.mu.Lock()
+		wasStopped = m.stopped[name]
+		m.mu.Unlock()
+	}
+
+	// Keep a durable copy before installing the new one. The original file
+	// remains in place until replacement succeeds, so a process crash cannot
+	// leave the instance without any usable config.
+	backupPath, err := writeTempConfig(filepath.Dir(oldPath), filepath.Base(oldPath)+".rollback", oldConfig)
+	if err != nil {
+		return fmt.Errorf("backup current config: %w", err)
+	}
+	backupExists := true
+	defer func() {
+		if backupExists {
+			_ = os.Remove(backupPath)
+		}
+	}()
+
 	if wasRunning {
 		inst.stop()
 	}
-
-	finalPath := inst.cfgPath
-	if wantRename {
-		finalPath = filepath.Join(m.dir, newName+".toml")
-	}
-	if err := os.Rename(tmpPath, finalPath); err != nil {
-		os.Remove(tmpPath)
-		return err
-	}
-
-	if wantRename {
-		if err := os.Remove(inst.cfgPath); err != nil {
-			log.Warnf("remove old config file of [%s]: %v", name, err)
+	if err := replaceFile(tmpPath, finalPath); err != nil {
+		restoreErr := replaceFile(backupPath, oldPath)
+		backupExists = false
+		if restoreErr != nil {
+			return fmt.Errorf("install new config: %v; restore previous config: %w", err, restoreErr)
 		}
+		if wasRunning {
+			if restartErr := inst.start(); restartErr != nil {
+				return fmt.Errorf("install new config: %v; previous config restored but restart failed: %w", err, restartErr)
+			}
+		}
+		return fmt.Errorf("install new config: %w", err)
+	}
+	tmpPath = ""
+
+	if wantRename {
 		inst.mu.Lock()
 		inst.Name = newName
 		inst.cfgPath = finalPath
@@ -617,17 +717,76 @@ func (m *Manager) UpdateConfig(name, newName, content string) error {
 		m.mu.Lock()
 		delete(m.instances, name)
 		m.instances[newName] = inst
-		if m.stopped[name] {
+		if wasStopped {
 			delete(m.stopped, name)
 			m.stopped[newName] = true
 		}
-		_ = m.saveState()
+		if err := m.saveState(); err != nil {
+			log.Warnf("save state after renaming [%s] to [%s]: %v", name, newName, err)
+		}
 		m.mu.Unlock()
 		log.Infof("instance [%s] renamed to [%s]", name, newName)
 	}
 
 	if wasRunning {
-		return inst.start()
+		if err := inst.start(); err != nil {
+			rollbackErr := m.rollbackConfigUpdate(inst, name, newName, oldPath, finalPath, backupPath, wantRename, wasStopped)
+			backupExists = false
+			if rollbackErr != nil {
+				return fmt.Errorf("new config failed to start: %v; rollback failed: %w", err, rollbackErr)
+			}
+			return fmt.Errorf("new config failed to start; previous config restored: %w", err)
+		}
+	}
+
+	if wantRename {
+		if err := os.Remove(oldPath); err != nil && !os.IsNotExist(err) {
+			log.Warnf("remove old config file of [%s]: %v", name, err)
+		}
+	}
+	if err := os.Remove(backupPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove config backup: %w", err)
+	}
+	backupExists = false
+	return nil
+}
+
+// rollbackConfigUpdate restores the old config and instance registration after
+// the replacement config failed to start. The caller owns opMu, so no other
+// mutating operation can observe the intermediate state.
+func (m *Manager) rollbackConfigUpdate(inst *Instance, oldName, newName, oldPath, newPath, backupPath string, renamed, wasStopped bool) error {
+	inst.stop()
+	if err := os.Remove(newPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove failed config: %w", err)
+	}
+	if err := replaceFile(backupPath, oldPath); err != nil {
+		return fmt.Errorf("restore old config: %w", err)
+	}
+
+	if renamed {
+		inst.mu.Lock()
+		inst.Name = oldName
+		inst.cfgPath = oldPath
+		inst.mu.Unlock()
+		m.mu.Lock()
+		delete(m.instances, newName)
+		m.instances[oldName] = inst
+		if wasStopped {
+			delete(m.stopped, newName)
+			m.stopped[oldName] = true
+		}
+		m.mu.Unlock()
+		log.Infof("instance [%s] rollback to [%s]", newName, oldName)
+	}
+
+	if _, err := os.Stat(oldPath); err != nil {
+		return fmt.Errorf("verify restored config: %w", err)
+	}
+	if wasStopped {
+		return nil
+	}
+	if err := inst.start(); err != nil {
+		return fmt.Errorf("restart previous config: %w", err)
 	}
 	return nil
 }
@@ -647,6 +806,8 @@ func (m *Manager) GetConfig(name string) (string, error) {
 }
 
 func (m *Manager) Delete(name string) error {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
 	m.mu.Lock()
 	inst, err := m.get(name)
 	if err == nil {
