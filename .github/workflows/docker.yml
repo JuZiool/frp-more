@@ -80,15 +80,23 @@ jobs:
           name: frp-more-fpk
           path: frp-more-*.fpk
 
-      - name: 上传 fpk 到 Release（等待 Release 创建）
+      - name: 创建 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release 已存在: $GITHUB_REF_NAME"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "FRP-More $GITHUB_REF_NAME" \
+              --generate-notes
+          fi
+
+      - name: 上传 fpk 到 Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           FPK="frp-more-${GITHUB_REF_NAME#v}.fpk"
-          for i in $(seq 1 15); do
-            if gh release upload "$GITHUB_REF_NAME" "$FPK" --clobber --repo "$GITHUB_REPOSITORY"; then
-              echo "已上传 fpk 到 Release"; exit 0
-            fi
-            echo "Release 尚未创建，20 秒后重试 ($i/15)"; sleep 20
-          done
-          echo "超时未等到 Release；fpk 已保存在本运行的构建产物中"; exit 0
+          gh release upload "$GITHUB_REF_NAME" "$FPK" \
+            --clobber --repo "$GITHUB_REPOSITORY"
