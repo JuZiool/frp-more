@@ -119,10 +119,14 @@ func newInstance(name, cfgPath string, unsafe *security.UnsafeFeatures) *Instanc
 // ignoring commented-out ones.
 var loginFailExitRe = regexp.MustCompile(`(?m)^[ \t]*loginFailExit[ \t]*=.*(?:\r?\n)?`)
 
-// enforceLoginFailExit strips any user-set loginFailExit keys and prepends
-// loginFailExit = false, so connections always keep retrying after drops.
+// loginFailExitBlock is the comment + key + blank line prepended to configs.
+const loginFailExitBlock = "# 连接失败后保持重试，便于服务恢复后自动重连（由 FRP-More 强制保留）\n" +
+	"loginFailExit = false\n\n"
+
+// enforceLoginFailExit strips any user-set loginFailExit keys and prepends the
+// enforced block, so connections always keep retrying after drops.
 func enforceLoginFailExit(content string) string {
-	return "loginFailExit = false\n" + loginFailExitRe.ReplaceAllString(content, "")
+	return loginFailExitBlock + loginFailExitRe.ReplaceAllString(content, "")
 }
 
 // buildAggregator parses the instance config file the same way cmd/frpc does:
