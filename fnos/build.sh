@@ -23,6 +23,8 @@ cp fnos/app/ui/images/icon_256.png "$STAGE/ICON_256.PNG"
 chmod +x "$STAGE/cmd/main"
 
 echo "==> 交叉编译 linux/amd64"
+# 包内 app/ 的内容会安装到应用根目录(TRIM_APPDEST)，二进制放 app/bin/frp-more，
+# 对应运行时路径 ${TRIM_APPDEST}/bin/frp-more
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o "$STAGE/app/bin/frp-more" .
 
 echo "==> fnpack build"
