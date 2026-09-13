@@ -84,16 +84,6 @@
   .log-toolbar label { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text2); white-space: nowrap; cursor: pointer; }
   .log-meta { font-size: 12px; color: var(--text2); }
 
-  .stats { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
-  .stat {
-    background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 14px 22px; box-shadow: var(--shadow); min-width: 130px;
-  }
-  .stat .num { font-size: 24px; font-weight: 700; }
-  .stat .label { font-size: 12px; color: var(--text2); }
-  .stat.green .num { color: var(--green); }
-  .stat.blue .num { color: var(--accent); }
-
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
   .card {
     background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
@@ -195,11 +185,6 @@
 </header>
 
 <main>
-  <div class="stats">
-    <div class="stat blue"><div class="num" id="stat-total">0</div><div class="label">实例总数</div></div>
-    <div class="stat green"><div class="num" id="stat-running">0</div><div class="label">运行中</div></div>
-    <div class="stat"><div class="num" id="stat-online">0</div><div class="label">代理在线</div></div>
-  </div>
   <div class="grid" id="grid"></div>
   <div class="empty" id="empty" style="display:none">
     <div class="big">📦</div>
@@ -328,11 +313,6 @@ function phaseBadge(p) {
 
 function render() {
   const total = instances.length;
-  const running = instances.filter(i => i.state === 'running').length;
-  const online = instances.reduce((n, i) => n + (i.proxyOnline || 0), 0);
-  $('stat-total').textContent = total;
-  $('stat-running').textContent = running;
-  $('stat-online').textContent = online;
   $('empty').style.display = total ? 'none' : 'block';
 
   $('grid').innerHTML = instances.map(i => {
