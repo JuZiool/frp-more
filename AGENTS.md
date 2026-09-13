@@ -88,6 +88,8 @@ FRP-More 是一个 Go 编写的 FRP 客户端可视化管理面板：
 - 发布标签使用 `v*` 格式，例如 `v0.1.11`。
 - `v0.1` 这类短版本标签也必须保持镜像标签兼容。
 - 发布前同步检查：应用版本、README、Docker 镜像标签、fnOS manifest 和 Release 附件。
+- 版本发布必须创建对应的 Git 标签，例如版本 `0.1.11` 对应标签 `v0.1.11`。
+- 发布时必须同时推送代码分支和版本标签：`git push origin main`、`git push origin vX.Y.Z`。
 - `.fpk` 和运行时 `data/` 不作为普通源码提交。
 
 ## 9. 测试与提交前检查
