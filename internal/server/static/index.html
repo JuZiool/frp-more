@@ -184,6 +184,7 @@
   </div>
   <div class="spacer"></div>
   <span class="hint" id="refresh-hint"><span class="conn-dot"></span>自动刷新中</span>
+  <button class="btn" id="btn-settings">设置</button>
   <button class="btn" id="btn-logs">日志</button>
   <button class="btn" id="btn-rescan">扫描目录</button>
   <button class="btn primary" id="btn-new">＋ 新建实例</button>
@@ -237,6 +238,26 @@
         <span class="log-meta" id="log-meta"></span>
       </div>
       <div id="log-view"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-mask" id="settings-mask">
+  <div class="modal" style="width:520px">
+    <div class="modal-head">
+      <span>设置</span>
+      <button class="modal-close" id="settings-close">✕</button>
+    </div>
+    <div class="modal-body">
+      <label class="log-follow" style="font-size:13.5px">
+        <input type="checkbox" id="set-force-lfe">
+        强制保留 <code>loginFailExit = false</code>
+      </label>
+      <div class="hint">开启后，保存任何实例配置时都会自动在开头注入 <code>loginFailExit = false</code>（连接失败保持重试），配置里手写的该键会被覆盖。</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" id="settings-cancel">取消</button>
+      <button class="btn primary" id="settings-save">保存</button>
     </div>
   </div>
 </div>
@@ -496,6 +517,31 @@ function closeLogs() {
 }
 
 $('btn-logs').onclick = () => openLogs('');
+
+// ---------- 设置 ----------
+let appSettings = { forceLoginFailExit: true };
+
+async function loadSettings() {
+  try { appSettings = await api('/api/settings'); } catch (e) { /* 用默认值 */ }
+}
+
+$('btn-settings').onclick = () => {
+  $('set-force-lfe').checked = appSettings.forceLoginFailExit;
+  $('settings-mask').classList.add('show');
+};
+function closeSettings() { $('settings-mask').classList.remove('show'); }
+$('settings-close').onclick = closeSettings;
+$('settings-cancel').onclick = closeSettings;
+$('settings-mask').onclick = (e) => { if (e.target === $('settings-mask')) closeSettings(); };
+$('settings-save').onclick = async () => {
+  try {
+    appSettings.forceLoginFailExit = $('set-force-lfe').checked;
+    await api('/api/settings', { method: 'PUT', body: JSON.stringify(appSettings) });
+    toast('设置已保存', 'success');
+    closeSettings();
+  } catch (e) { toast('保存失败：' + e.message, 'error'); }
+};
+
 $('log-close').onclick = closeLogs;
 $('log-filter').oninput = renderLogs;
 $('log-mask').onclick = (e) => { if (e.target === $('log-mask')) closeLogs(); };
@@ -508,6 +554,7 @@ setInterval(() => {
 }, 1000);
 
 (async function init() {
+  await loadSettings();
   try {
     const v = await api('/api/version');
     $('version-badge').textContent = 'v' + v.appVersion + ' · frp ' + v.frpVersion;

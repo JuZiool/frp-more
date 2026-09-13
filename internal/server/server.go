@@ -33,6 +33,8 @@ func New(mgr *manager.Manager, logs *logbuf.Buffer) *http.Server {
 	mux.HandleFunc("POST /api/instances", s.handleCreate)
 	mux.HandleFunc("POST /api/reload-dir", s.handleReloadDir)
 	mux.HandleFunc("GET /api/logs", s.handleLogs)
+	mux.HandleFunc("GET /api/settings", s.handleGetSettings)
+	mux.HandleFunc("PUT /api/settings", s.handlePutSettings)
 	mux.HandleFunc("GET /api/instances/{name}/config", s.handleGetConfig)
 	mux.HandleFunc("PUT /api/instances/{name}/config", s.handlePutConfig)
 	mux.HandleFunc("POST /api/instances/{name}/start", s.handleStart)
@@ -62,7 +64,7 @@ type versionInfo struct {
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, versionInfo{
-		AppVersion: "0.1.7",
+		AppVersion: "0.1.8",
 		FrpVersion: version.Full(),
 	})
 }
@@ -87,6 +89,23 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		lines = []string{}
 	}
 	writeJSON(w, http.StatusOK, logsPayload{Lines: lines, Dropped: dropped})
+}
+
+func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.mgr.Settings())
+}
+
+func (s *Server) handlePutSettings(w http.ResponseWriter, r *http.Request) {
+	var p manager.Settings
+	if err := readJSON(r, &p); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.mgr.SetSettings(p); err != nil {
+		writeErr(w, http.StatusInternalServerError, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 type instancePayload struct {

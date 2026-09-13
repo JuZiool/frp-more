@@ -115,6 +115,16 @@ func newInstance(name, cfgPath string, unsafe *security.UnsafeFeatures) *Instanc
 	}
 }
 
+// loginFailExitRe matches user-set loginFailExit lines (top-level or misplaced),
+// ignoring commented-out ones.
+var loginFailExitRe = regexp.MustCompile(`(?m)^[ \t]*loginFailExit[ \t]*=.*(?:\r?\n)?`)
+
+// enforceLoginFailExit strips any user-set loginFailExit keys and prepends
+// loginFailExit = false, so connections always keep retrying after drops.
+func enforceLoginFailExit(content string) string {
+	return "loginFailExit = false\n" + loginFailExitRe.ReplaceAllString(content, "")
+}
+
 // buildAggregator parses the instance config file the same way cmd/frpc does:
 // load -> seed config source -> aggregate -> filter/complete -> validate.
 // The returned aggregator is the one to hand to client.NewService.
@@ -313,12 +323,13 @@ func (i *Instance) Info() Info {
 
 // Manager owns the instance registry and the persisted stopped-state set.
 type Manager struct {
-	mu        sync.Mutex
-	dir       string
-	statePath string
-	unsafe    *security.UnsafeFeatures
-	instances map[string]*Instance
-	stopped   map[string]bool
+	mu                 sync.Mutex
+	dir                string
+	statePath          string
+	unsafe             *security.UnsafeFeatures
+	instances          map[string]*Instance
+	stopped            map[string]bool
+	forceLoginFailExit bool
 }
 
 func NewManager(dataDir string) (*Manager, error) {
@@ -327,11 +338,12 @@ func NewManager(dataDir string) (*Manager, error) {
 		return nil, err
 	}
 	m := &Manager{
-		dir:       dir,
-		statePath: filepath.Join(dataDir, "state.json"),
-		unsafe:    security.NewUnsafeFeatures(nil),
-		instances: map[string]*Instance{},
-		stopped:   map[string]bool{},
+		dir:                 dir,
+		statePath:           filepath.Join(dataDir, "state.json"),
+		unsafe:              security.NewUnsafeFeatures(nil),
+		instances:           map[string]*Instance{},
+		stopped:             map[string]bool{},
+		forceLoginFailExit:  true, // 默认开启：强制保留 loginFailExit = false
 	}
 	if err := m.loadState(); err != nil {
 		log.Warnf("load state: %v", err)
@@ -340,7 +352,27 @@ func NewManager(dataDir string) (*Manager, error) {
 }
 
 type persistedState struct {
-	Stopped []string `json:"stopped"`
+	Stopped  []string `json:"stopped"`
+	Settings *Settings `json:"settings,omitempty"`
+}
+
+// Settings are manager-wide user preferences.
+type Settings struct {
+	ForceLoginFailExit bool `json:"forceLoginFailExit"`
+}
+
+func (m *Manager) Settings() Settings {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return Settings{ForceLoginFailExit: m.forceLoginFailExit}
+}
+
+func (m *Manager) SetSettings(s Settings) error {
+	m.mu.Lock()
+	m.forceLoginFailExit = s.ForceLoginFailExit
+	err := m.saveState()
+	m.mu.Unlock()
+	return err
 }
 
 func (m *Manager) loadState() error {
@@ -358,11 +390,17 @@ func (m *Manager) loadState() error {
 	for _, name := range st.Stopped {
 		m.stopped[name] = true
 	}
+	if st.Settings != nil {
+		m.forceLoginFailExit = st.Settings.ForceLoginFailExit
+	}
 	return nil
 }
 
 func (m *Manager) saveState() error {
-	st := persistedState{}
+	st := persistedState{
+		Stopped:  []string{},
+		Settings: &Settings{ForceLoginFailExit: m.forceLoginFailExit},
+	}
 	for name, stopped := range m.stopped {
 		if stopped {
 			st.Stopped = append(st.Stopped, name)
@@ -507,9 +545,13 @@ func (m *Manager) Create(name, content string) error {
 	m.mu.Lock()
 	_, exists := m.instances[name]
 	dir := m.dir
+	force := m.forceLoginFailExit
 	m.mu.Unlock()
 	if exists {
 		return fmt.Errorf("instance %s already exists", name)
+	}
+	if force {
+		content = enforceLoginFailExit(content)
 	}
 
 	tmpPath := filepath.Join(dir, name+".toml.tmp")
@@ -553,12 +595,16 @@ func (m *Manager) Create(name, content string) error {
 func (m *Manager) UpdateConfig(name, newName, content string) error {
 	m.mu.Lock()
 	inst, err := m.get(name)
+	force := m.forceLoginFailExit
 	m.mu.Unlock()
 	if err != nil {
 		return err
 	}
 	if newName == "" {
 		newName = name
+	}
+	if force {
+		content = enforceLoginFailExit(content)
 	}
 
 	tmpPath := inst.cfgPath + ".tmp"
