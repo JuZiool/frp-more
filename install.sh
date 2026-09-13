@@ -90,7 +90,7 @@ if [ "$(docker inspect -f '{{.State.Running}}' "${CONTAINER_NAME}" 2>/dev/null)"
   die "容器启动失败，请查看上方日志"
 fi
 
-SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+SERVER_IP="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
 [ -n "${SERVER_IP}" ] || SERVER_IP="<本机IP>"
 
 log "部署完成!"
