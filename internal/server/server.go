@@ -47,7 +47,12 @@ func New(mgr *manager.Manager, logs *logbuf.Buffer) *http.Server {
 		http.ServeFileFS(w, r, staticFS, "static/index.html")
 	})
 
-	return &http.Server{Handler: mux}
+	// noStore stops browsers from caching responses, so UI and API updates
+	// are always picked up without a manual hard refresh.
+	return &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		mux.ServeHTTP(w, r)
+	})}
 }
 
 type versionInfo struct {
@@ -57,7 +62,7 @@ type versionInfo struct {
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, versionInfo{
-		AppVersion: "0.1.3",
+		AppVersion: "0.1.4",
 		FrpVersion: version.Full(),
 	})
 }

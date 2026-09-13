@@ -78,11 +78,16 @@
   }
   .log-toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
   .log-toolbar input[type=text] {
-    flex: 1; min-width: 160px; border: 1px solid var(--border); border-radius: 8px;
+    flex: 1 1 180px; min-width: 160px; border: 1px solid var(--border); border-radius: 8px;
     padding: 7px 12px; font-size: 13px; font-family: ui-monospace, Consolas, monospace;
   }
-  .log-toolbar label { display: flex; align-items: center; gap: 5px; font-size: 12.5px; color: var(--text2); white-space: nowrap; cursor: pointer; }
-  .log-meta { font-size: 12px; color: var(--text2); }
+  /* 用专用类避免被 .modal-body label 的 display:block 覆盖 */
+  .log-toolbar .log-follow {
+    display: flex; align-items: center; gap: 5px; flex: none;
+    font-size: 12.5px; color: var(--text2); white-space: nowrap; cursor: pointer;
+    margin-bottom: 0; font-weight: normal;
+  }
+  .log-meta { font-size: 12px; color: var(--text2); flex: none; white-space: nowrap; }
 
   .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; }
   .card {
@@ -228,7 +233,7 @@
     <div class="modal-body">
       <div class="log-toolbar">
         <input type="text" id="log-filter" placeholder="筛选关键字，例如实例名 / 代理名 / runID…">
-        <label><input type="checkbox" id="log-follow" checked> 自动刷新</label>
+        <label class="log-follow"><input type="checkbox" id="log-follow" checked> 自动刷新</label>
         <span class="log-meta" id="log-meta"></span>
       </div>
       <div id="log-view"></div>
