@@ -90,6 +90,7 @@ FRP-More 是一个 Go 编写的 FRP 客户端可视化管理面板：
 - 发布前同步检查：应用版本、README、Docker 镜像标签、fnOS manifest 和 Release 附件。
 - 版本发布必须创建对应的 Git 标签，例如版本 `0.1.11` 对应标签 `v0.1.11`。
 - 发布时必须同时推送代码分支和版本标签：`git push origin main`、`git push origin vX.Y.Z`。
+- 推送版本标签后必须监测 GitHub Actions 构建进度，确认 Docker 镜像和 fnOS 应用包构建结果；失败时查看日志并反馈原因，不得只推送不验证。
 - `.fpk` 和运行时 `data/` 不作为普通源码提交。
 
 ## 9. 测试与提交前检查
