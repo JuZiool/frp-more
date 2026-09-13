@@ -91,9 +91,21 @@ FRP-More 是一个 Go 编写的 FRP 客户端可视化管理面板：
 - 版本发布必须创建对应的 Git 标签，例如版本 `0.1.11` 对应标签 `v0.1.11`。
 - 发布时必须同时推送代码分支和版本标签：`git push origin main`、`git push origin vX.Y.Z`。
 - 推送版本标签后必须监测 GitHub Actions 构建进度，确认 Docker 镜像和 fnOS 应用包构建结果；失败时查看日志并反馈原因，不得只推送不验证。
+- GitHub Actions 必须先创建对应 Release，再上传 `.fpk`；不能只上传 Artifact 或等待一个不存在的 Release。
+- 发布验收必须同时确认：Actions 所有 job 成功、Release 页面存在、Release 附件包含正确版本的 `.fpk`；Docker 镜像应在 GHCR 中确认，不能误以为它会出现在 Release 附件里。
 - `.fpk` 和运行时 `data/` 不作为普通源码提交。
 
-## 9. 测试与提交前检查
+## 9. 标准版本发布流程
+
+1. 更新应用版本号，并同步检查 README、fnOS manifest 和镜像标签规则。
+2. 执行 `gofmt`、`go test ./...`、`go vet ./...` 和 `go build .`。
+3. 使用中文提交信息提交版本改动。
+4. 在该发布提交上创建 `vX.Y.Z` 标签。
+5. 同时推送 `main` 分支和版本标签。
+6. 监测对应 GitHub Actions，确认 Docker 和 fnOS 构建完成。
+7. 检查 GitHub Release 和 `.fpk` 附件；如果没有 Release 或附件，立即检查工作流并修复，不得把“Actions 成功”当作“发布完成”。
+
+## 10. 测试与提交前检查
 
 每次修改 Go 代码至少执行：
 
@@ -118,7 +130,7 @@ go build .
 - Git 提交信息统一使用中文。功能新增使用“新增：……”格式，缺陷修复使用“修复：……”格式，版本发布使用“发布 vX.Y.Z：……”格式。
 - 修改页面、API 或部署行为时同步更新文档。
 
-## 10. 已知限制
+## 11. 已知限制
 
 - FRP 的全局 logger 会让多个实例的日志混在一起。
 - `frp/client` 是内部 API，不承诺跨版本稳定。
