@@ -89,6 +89,46 @@ func TestAuthenticationProtectsManagementAPI(t *testing.T) {
 	afterLogout.Body.Close()
 }
 
+func TestInstanceLogsAreSeparateFromGlobalLogs(t *testing.T) {
+	globalLogs := logbuf.New(10)
+	globalLogs.Append("global line")
+	instanceLogs := logbuf.NewInstanceStore(10)
+	instanceLogs.Register("alpha")
+	instanceLogs.Append("alpha", "[frp-more:alpha] alpha line")
+
+	h := NewWithInstanceLogs(nil, globalLogs, instanceLogs, AuthConfig{Username: "admin", Password: "admin123"})
+	ts := httptest.NewServer(h.Handler)
+	defer ts.Close()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := &http.Client{Jar: jar}
+	login, err := postJSON(client, ts.URL+"/api/login", `{"username":"admin","password":"admin123"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	login.Body.Close()
+
+	res, err := client.Get(ts.URL + "/api/instances/alpha/logs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(res.Body)
+		t.Fatalf("instance logs status = %d, body = %s", res.StatusCode, body)
+	}
+	var payload logsPayload
+	if err := json.NewDecoder(res.Body).Decode(&payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Lines) != 1 || payload.Lines[0] != "[frp-more:alpha] alpha line" {
+		t.Fatalf("instance logs = %#v, want only alpha line", payload.Lines)
+	}
+}
+
 func postJSON(client *http.Client, url, body string) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
 	if err != nil {

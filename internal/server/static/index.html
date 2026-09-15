@@ -274,7 +274,7 @@
 <div class="modal-mask" id="log-mask">
   <div class="modal">
     <div class="modal-head">
-      <span>实时日志（最近 2000 行）</span>
+      <span id="log-title">实时日志</span>
       <button class="modal-close" id="log-close">✕</button>
     </div>
     <div class="modal-body">
@@ -445,7 +445,7 @@ function render() {
           ? `<button class="btn" title="启动实例" onclick="act('start','${esc(i.name)}')">启动</button>`
           : `<button class="btn" title="停止实例" onclick="act('stop','${esc(i.name)}')">停止</button>
              <button class="btn" title="重启实例" onclick="act('restart','${esc(i.name)}')">重启</button>`}
-        <button class="btn" title="查看日志" onclick="openLogs('${esc(i.name)}')">日志</button>
+        <button class="btn" title="查看日志" onclick="openLogs('', '${esc(i.name)}')">日志</button>
         <button class="btn" title="编辑配置" onclick="openEdit('${esc(i.name)}')">编辑</button>
         <button class="btn danger-text" title="删除实例" onclick="del('${esc(i.name)}')">删除</button>
       </div>
@@ -576,6 +576,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeMod
 // ---------- 日志查看 ----------
 let logTimer = null;
 let logLines = [];
+let logInstance = '';
 
 function renderLogs(dropped) {
   const kw = $('log-filter').value.trim().toLowerCase();
@@ -590,14 +591,24 @@ function renderLogs(dropped) {
 
 async function refreshLogs() {
   try {
-    const data = await api('/api/logs');
+    const path = logInstance ? `/api/instances/${encodeURIComponent(logInstance)}/logs` : '/api/logs';
+    const data = await api(path);
     logLines = data.lines || [];
     renderLogs(data.dropped || 0);
-  } catch (e) { /* 弹窗关闭或网络波动时静默 */ }
+  } catch (e) {
+    // Do not leave the previous global/other-instance lines on screen when
+    // loading a selected instance log fails.
+    logLines = [];
+    renderLogs(0);
+    $('log-view').textContent = '日志加载失败：' + e.message;
+    $('log-meta').textContent = '加载失败';
+  }
 }
 
-function openLogs(filter = '') {
+function openLogs(filter = '', instance = '') {
+  logInstance = instance;
   $('log-filter').value = filter;
+  $('log-title').textContent = instance ? `实例日志：${instance}` : '全局日志';
   $('log-mask').classList.add('show');
   refreshLogs();
   clearInterval(logTimer);
@@ -608,6 +619,8 @@ function openLogs(filter = '') {
 
 function closeLogs() {
   $('log-mask').classList.remove('show');
+  $('log-title').textContent = '全局日志';
+  logInstance = '';
   clearInterval(logTimer);
   logTimer = null;
 }

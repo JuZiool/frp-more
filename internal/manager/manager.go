@@ -24,6 +24,9 @@ import (
 	"github.com/fatedier/frp/pkg/config/v1/validation"
 	"github.com/fatedier/frp/pkg/policy/security"
 	"github.com/fatedier/frp/pkg/util/log"
+	"github.com/fatedier/frp/pkg/util/xlog"
+
+	"frp-more/internal/logbuf"
 )
 
 const (
@@ -93,6 +96,7 @@ type Instance struct {
 	Name    string
 	cfgPath string
 	unsafe  *security.UnsafeFeatures
+	logs    *logbuf.InstanceStore
 
 	mu          sync.Mutex
 	cancel      context.CancelFunc
@@ -106,13 +110,31 @@ type Instance struct {
 	visitorCfgs []v1.VisitorConfigurer
 }
 
-func newInstance(name, cfgPath string, unsafe *security.UnsafeFeatures) *Instance {
+func newInstance(name, cfgPath string, unsafe *security.UnsafeFeatures, stores ...*logbuf.InstanceStore) *Instance {
+	var logs *logbuf.InstanceStore
+	if len(stores) > 0 {
+		logs = stores[0]
+	}
+	if logs != nil {
+		logs.Register(name)
+	}
 	return &Instance{
 		Name:    name,
 		cfgPath: cfgPath,
 		unsafe:  unsafe,
+		logs:    logs,
 		state:   StateStopped,
 	}
+}
+
+// instanceLogger adds a stable routing tag to all lifecycle and FRP service
+// messages emitted for this instance.
+func (i *Instance) instanceLogger() *xlog.Logger {
+	return xlog.New().AddPrefix(xlog.LogPrefix{
+		Name:     "frp-more-instance",
+		Value:    logbuf.InstanceTag(i.Name),
+		Priority: 1,
+	})
 }
 
 // buildAggregator parses the instance config file the same way cmd/frpc does:
@@ -153,10 +175,13 @@ func (i *Instance) buildAggregator() (*v1.ClientCommonConfig, *source.Aggregator
 
 	warning, err := validation.ValidateAllClientConfig(result.Common, proxyCfgs, visitorCfgs, i.unsafe)
 	if warning != nil {
-		log.Warnf("instance [%s] config warning: %v", i.Name, warning)
+		i.instanceLogger().Warnf("config warning: %v", warning)
 	}
 	if err != nil {
 		return nil, nil, nil, nil, err
+	}
+	if i.logs != nil {
+		i.logs.Register(i.Name)
 	}
 	return result.Common, aggregator, proxyCfgs, visitorCfgs, nil
 }
@@ -175,6 +200,7 @@ func (i *Instance) start() error {
 
 	common, aggregator, proxyCfgs, visitorCfgs, err := i.buildAggregator()
 	if err != nil {
+		i.instanceLogger().Errorf("start failed: %v", err)
 		return err
 	}
 
@@ -185,10 +211,12 @@ func (i *Instance) start() error {
 		ConfigFilePath:         i.cfgPath,
 	})
 	if err != nil {
+		i.instanceLogger().Errorf("create frpc service failed: %v", err)
 		return err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	instanceLogger := i.instanceLogger()
+	ctx, cancel := context.WithCancel(xlog.NewContext(context.Background(), instanceLogger))
 	done := make(chan struct{})
 	i.cancel = cancel
 	i.svr = svr
@@ -204,19 +232,28 @@ func (i *Instance) start() error {
 		defer close(done)
 		err := svr.Run(ctx)
 		i.mu.Lock()
-		defer i.mu.Unlock()
-		if i.state == StateRunning { // exited on its own, not a manual stop
+		wasRunning := i.state == StateRunning
+		if wasRunning { // exited on its own, not a manual stop
 			i.state = StateExited
 			if err != nil {
 				i.lastErr = err.Error()
 			}
 		}
+		i.mu.Unlock()
+		if err != nil && wasRunning {
+			instanceLogger.Errorf("frpc exited unexpectedly: %v", err)
+		} else if err != nil {
+			instanceLogger.Debugf("frpc stopped: %v", err)
+		}
+		i.mu.Lock()
 		i.svr = nil
 		i.cancel = nil
+		i.done = nil
+		i.mu.Unlock()
 	}()
 
-	log.Infof("instance [%s] started (server %s:%d, %d proxies)",
-		i.Name, common.ServerAddr, common.ServerPort, len(proxyCfgs))
+	instanceLogger.Infof("started (server %s:%d, %d proxies)",
+		common.ServerAddr, common.ServerPort, len(proxyCfgs))
 	return nil
 }
 
@@ -228,6 +265,7 @@ func (i *Instance) stop() {
 		return
 	}
 	i.state = StateStopped
+	instanceLogger := i.instanceLogger()
 	svr, cancel, done := i.svr, i.cancel, i.done
 	i.svr, i.cancel, i.done = nil, nil, nil
 	i.mu.Unlock()
@@ -242,10 +280,10 @@ func (i *Instance) stop() {
 		select {
 		case <-done:
 		case <-time.After(3 * time.Second):
-			log.Warnf("instance [%s] did not stop within 3s", i.Name)
+			instanceLogger.Warnf("did not stop within 3s")
 		}
 	}
-	log.Infof("instance [%s] stopped", i.Name)
+	instanceLogger.Infof("stopped")
 }
 
 // loadSnapshot parses the config without starting the service, so that a
@@ -320,8 +358,28 @@ type Manager struct {
 	dir       string
 	statePath string
 	unsafe    *security.UnsafeFeatures
+	logs      *logbuf.InstanceStore
 	instances map[string]*Instance
 	stopped   map[string]bool
+}
+
+// SetInstanceLogs attaches the per-instance log store used by future and
+// already discovered instances.
+func (m *Manager) SetInstanceLogs(logs *logbuf.InstanceStore) {
+	m.opMu.Lock()
+	defer m.opMu.Unlock()
+	m.mu.Lock()
+	m.logs = logs
+	for _, inst := range m.instances {
+		inst.mu.Lock()
+		inst.logs = logs
+		name := inst.Name
+		inst.mu.Unlock()
+		if logs != nil {
+			logs.Register(name)
+		}
+	}
+	m.mu.Unlock()
 }
 
 func NewManager(dataDir string) (*Manager, error) {
@@ -407,7 +465,7 @@ func (m *Manager) ScanDir() {
 		if _, ok := m.instances[name]; ok {
 			continue
 		}
-		inst := newInstance(name, filepath.Join(m.dir, e.Name()), m.unsafe)
+		inst := newInstance(name, filepath.Join(m.dir, e.Name()), m.unsafe, m.logs)
 		m.instances[name] = inst
 		if m.stopped[name] {
 			log.Infof("instance [%s] discovered, kept stopped by persisted state", name)
@@ -529,7 +587,7 @@ func (m *Manager) Create(name, content string) error {
 	if err := os.WriteFile(tmpPath, []byte(content), 0o644); err != nil {
 		return err
 	}
-	check := newInstance(name, tmpPath, m.unsafe)
+	check := newInstance(name, tmpPath, m.unsafe, m.logs)
 	if _, _, _, _, err := check.buildAggregator(); err != nil {
 		os.Remove(tmpPath)
 		return fmt.Errorf("config invalid: %w", err)
@@ -540,7 +598,7 @@ func (m *Manager) Create(name, content string) error {
 		os.Remove(tmpPath)
 		return err
 	}
-	inst := newInstance(name, finalPath, m.unsafe)
+	inst := newInstance(name, finalPath, m.unsafe, m.logs)
 
 	m.mu.Lock()
 	m.instances[name] = inst
@@ -645,7 +703,7 @@ func (m *Manager) UpdateConfig(name, newName, content string) error {
 	}
 	defer cleanupTemp()
 
-	check := newInstance(name, tmpPath, m.unsafe)
+	check := newInstance(name, tmpPath, m.unsafe, m.logs)
 	if _, _, _, _, err := check.buildAggregator(); err != nil {
 		return fmt.Errorf("config invalid: %w", err)
 	}
@@ -714,6 +772,9 @@ func (m *Manager) UpdateConfig(name, newName, content string) error {
 		inst.Name = newName
 		inst.cfgPath = finalPath
 		inst.mu.Unlock()
+		if m.logs != nil {
+			m.logs.Rename(name, newName)
+		}
 		m.mu.Lock()
 		delete(m.instances, name)
 		m.instances[newName] = inst
@@ -768,6 +829,9 @@ func (m *Manager) rollbackConfigUpdate(inst *Instance, oldName, newName, oldPath
 		inst.Name = oldName
 		inst.cfgPath = oldPath
 		inst.mu.Unlock()
+		if m.logs != nil {
+			m.logs.Rename(newName, oldName)
+		}
 		m.mu.Lock()
 		delete(m.instances, newName)
 		m.instances[oldName] = inst
@@ -821,6 +885,9 @@ func (m *Manager) Delete(name string) error {
 	}
 
 	inst.stop()
+	if m.logs != nil {
+		m.logs.Remove(name)
+	}
 	if err := os.Remove(inst.cfgPath); err != nil && !os.IsNotExist(err) {
 		return err
 	}

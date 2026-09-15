@@ -1,0 +1,7 @@
+services:
+  frp-more:
+    # Docker Desktop on Windows does not expose Linux host networking on the
+    # Windows host; use bridge networking with an explicit management port.
+    network_mode: bridge
+    ports:
+      - "1332:1332"

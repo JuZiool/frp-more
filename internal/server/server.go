@@ -30,9 +30,10 @@ type AuthConfig struct {
 }
 
 type Server struct {
-	mgr  *manager.Manager
-	logs *logbuf.Buffer
-	auth AuthConfig
+	mgr          *manager.Manager
+	logs         *logbuf.Buffer
+	instanceLogs *logbuf.InstanceStore
+	auth         AuthConfig
 
 	sessionsMu sync.Mutex
 	sessions   map[string]time.Time
@@ -44,6 +45,16 @@ const (
 )
 
 func New(mgr *manager.Manager, logs *logbuf.Buffer, auth AuthConfig) *http.Server {
+	return newServer(mgr, logs, nil, auth)
+}
+
+// NewWithInstanceLogs is like New, but also exposes isolated log streams for
+// each managed instance.
+func NewWithInstanceLogs(mgr *manager.Manager, logs *logbuf.Buffer, instanceLogs *logbuf.InstanceStore, auth AuthConfig) *http.Server {
+	return newServer(mgr, logs, instanceLogs, auth)
+}
+
+func newServer(mgr *manager.Manager, logs *logbuf.Buffer, instanceLogs *logbuf.InstanceStore, auth AuthConfig) *http.Server {
 	if auth.Username == "" {
 		auth.Username = "admin"
 	}
@@ -51,10 +62,11 @@ func New(mgr *manager.Manager, logs *logbuf.Buffer, auth AuthConfig) *http.Serve
 		auth.Password = "admin123"
 	}
 	s := &Server{
-		mgr:      mgr,
-		logs:     logs,
-		auth:     auth,
-		sessions: make(map[string]time.Time),
+		mgr:          mgr,
+		logs:         logs,
+		instanceLogs: instanceLogs,
+		auth:         auth,
+		sessions:     make(map[string]time.Time),
 	}
 	mux := http.NewServeMux()
 
@@ -70,6 +82,7 @@ func New(mgr *manager.Manager, logs *logbuf.Buffer, auth AuthConfig) *http.Serve
 	mux.HandleFunc("POST /api/instances", s.handleCreate)
 	mux.HandleFunc("POST /api/reload-dir", s.handleReloadDir)
 	mux.HandleFunc("GET /api/logs", s.handleLogs)
+	mux.HandleFunc("GET /api/instances/{name}/logs", s.handleInstanceLogs)
 	mux.HandleFunc("GET /api/instances/{name}/config", s.handleGetConfig)
 	mux.HandleFunc("PUT /api/instances/{name}/config", s.handlePutConfig)
 	mux.HandleFunc("POST /api/instances/{name}/start", s.handleStart)
@@ -204,7 +217,7 @@ type versionInfo struct {
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, versionInfo{
-		AppVersion: "0.1.12",
+		AppVersion: "0.1.13",
 		FrpVersion: version.Full(),
 	})
 }
@@ -225,6 +238,22 @@ type logsPayload struct {
 
 func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 	lines, dropped := s.logs.Snapshot()
+	if lines == nil {
+		lines = []string{}
+	}
+	writeJSON(w, http.StatusOK, logsPayload{Lines: lines, Dropped: dropped})
+}
+
+func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
+	if s.instanceLogs == nil {
+		writeErr(w, http.StatusNotImplemented, errors.New("instance logs are not enabled"))
+		return
+	}
+	lines, dropped, ok := s.instanceLogs.Snapshot(r.PathValue("name"))
+	if !ok {
+		writeErr(w, http.StatusNotFound, errors.New("instance logs not found"))
+		return
+	}
 	if lines == nil {
 		lines = []string{}
 	}

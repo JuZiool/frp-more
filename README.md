@@ -12,6 +12,7 @@
 - **可视化页面**：实例卡片展示运行状态、已运行时长；每个代理的在线状态与远程端口实时刷新（4 秒轮询）
 - **在线编辑配置**：页面内直接编辑 TOML 配置，保存时做完整校验（与 frpc 严格模式一致），运行中的实例保存后自动重启生效
 - **实例生命周期**：启动 / 停止 / 重启 / 删除；「已停止」状态持久化到 `data/state.json`，容器重启后保持
+- **实例日志**：每个实例独立保留最近 200 行日志，使用唯一实例标记严格隔离；同时保留全局日志用于排查跨实例问题
 - **目录扫描**：手动把 `.toml` 文件放进数据目录后，点「扫描目录」（或 `POST /api/reload-dir`）即可发现并启动
 - **校验前置**：非法配置（未知字段、缺字段、端口冲突等）在保存时即被拒绝，不会影响正在运行的实例
 
@@ -47,6 +48,12 @@ docker run -d --name frp-more --network host \
 生产环境建议通过 `FRP_MORE_USERNAME` 和 `FRP_MORE_PASSWORD` 修改默认账号密码。
 
 默认使用 **host 网络模式**（`network_mode: host`）：管理页面直接监听宿主机 `:1332`，实例的 `localIP` 也可以直接写内网 IP 或 `127.0.0.1`。需要更换管理端口时，取消 compose 中 `command` 的注释并调整端口。
+
+Windows Docker Desktop 可使用仓库中的覆盖配置：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.windows.yml up -d --build
+```
 
 ### 让 frpc 访问内网服务
 
@@ -100,12 +107,14 @@ remotePort = 6001
 | GET | `/api/instances` | 实例列表（含每个代理的实时状态） |
 | POST | `/api/instances` | 创建实例 `{name, config}`，校验通过后自动启动 |
 | GET | `/api/instances/{name}/config` | 读取实例配置原文 |
+| GET | `/api/instances/{name}/logs` | 读取该实例的独立日志（最近 200 行） |
 | PUT | `/api/instances/{name}/config` | 更新配置（校验 + 运行中自动重启） |
 | POST | `/api/instances/{name}/start` | 启动 |
 | POST | `/api/instances/{name}/stop` | 停止（状态持久化） |
 | POST | `/api/instances/{name}/restart` | 重启 |
 | DELETE | `/api/instances/{name}` | 删除实例及配置文件 |
 | POST | `/api/reload-dir` | 重新扫描数据目录 |
+| GET | `/api/logs` | 读取全局日志（最近 200 行） |
 | POST | `/api/login` | 登录 `{username, password}` |
 | GET | `/api/session` | 查询当前登录状态 |
 | POST | `/api/logout` | 退出登录 |
@@ -126,12 +135,13 @@ remotePort = 6001
 
 - 每个实例按 frpc 官方启动流程加载配置（load → aggregate → filter → validate），跑在独立的 goroutine 里，互不影响；一个实例崩溃或登录失败退出不影响其他实例
 - 代理状态通过 frp 库的 `StatusExporter` 在进程内直接读取，无需为每个实例开 admin 端口
-- 日志统一输出到 stdout，用 `docker logs frp-more` 查看
+- 日志同时输出到 stdout 和管理页面；全局日志可用 `docker logs frp-more` 查看，实例日志可在对应实例卡片中查看
+- 默认使用 debug 日志级别，可通过 `--log-level trace|debug|info|warn|error` 调整
 
 ## 已知限制
 
 - frp 的 `client` 包属于内部 API（无稳定性承诺），本项目锁定 v0.71.0；升级 frp 版本需要回归测试
-- 实例日志与全局日志混在 stdout（frp 的全局 logger 为包级单例），暂不支持按实例分文件
+- FRP 库内部使用全局 logger；本项目为每个嵌入式服务注入唯一实例标记，只有带该标记的日志才会写入对应实例。没有实例标记的通用日志仅显示在全局日志中
 - 数据目录仅识别 `.toml` 格式（frp 亦支持 yaml/json，如有需要可扩展）
 
 ## 项目结构
