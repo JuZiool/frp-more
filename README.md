@@ -10,6 +10,7 @@
 
 - **多实例管理**：每个 `frpc.toml` 配置文件对应一个独立实例，一个进程/容器内可同时运行任意多个（典型场景：2~3 个不同服务端/用途的配置）
 - **可视化页面**：实例卡片展示运行状态、已运行时长；每个代理的在线状态与远程端口实时刷新（4 秒轮询）
+- **两种新建方式**：新建实例时可切换「表单」与「TOML」——表单只需填服务端地址、端口、token 和代理信息，会自动生成配置；需要 TLS / transport / 访问器等高级配置时切到 TOML 直接编辑
 - **在线编辑配置**：页面内直接编辑 TOML 配置，保存时做完整校验（与 frpc 严格模式一致），运行中的实例保存后自动重启生效
 - **实例生命周期**：启动 / 停止 / 重启 / 删除；「已停止」状态持久化到 `data/state.json`，容器重启后保持
 - **实例日志**：每个实例独立保留最近 200 行日志，使用唯一实例标记严格隔离；同时保留全局日志用于排查跨实例问题
@@ -44,8 +45,10 @@ docker run -d --name frp-more --network host \
 密码：admin123
 ```
 
-登录后即可点击「新建实例」，填入名称和 frpc 配置。配置持久化在 `./data/instances/*.toml`。
+登录后即可点击「新建实例」，选择「表单」填写服务端地址、端口、token 和代理信息，或切到「TOML」直接粘贴完整配置。配置持久化在 `./data/instances/*.toml`。
 生产环境建议通过 `FRP_MORE_USERNAME` 和 `FRP_MORE_PASSWORD` 修改默认账号密码。
+
+![新建实例（表单模式）](doc/preview-form.png)
 
 默认使用 **host 网络模式**（`network_mode: host`）：管理页面直接监听宿主机 `:1332`，实例的 `localIP` 也可以直接写内网 IP 或 `127.0.0.1`。需要更换管理端口时，取消 compose 中 `command` 的注释并调整端口。
 
@@ -78,6 +81,16 @@ docker compose -f docker-compose.yml -f docker-compose.windows.yml up -d --build
 ```bash
 go build -o frp-more .
 ./frp-more -data ./data -addr :1332
+```
+
+前端改动可以跑 `tools/` 下的自测脚本（仅依赖 node，非构建依赖）：
+
+```bash
+node tools/check-form.js        # 表单 → TOML 生成逻辑
+node tools/check-form-ui.js     # DOM 交互（需 JSDOM_PATH 指向 jsdom）
+node tools/mutation-check.js    # 变异测试，确认上面两个自测不是空转
+node tools/e2e-form.js <地址>   # 真实浏览器端到端（需 Edge/Chrome）
+node tools/screenshot.js <地址> doc   # 重新生成 README 预览图
 ```
 
 ## 实例配置示例
@@ -160,6 +173,7 @@ frp-more/
 │   ├── app/ui/config            # 桌面入口（应用卡片打开网页）
 │   └── build.sh                 # fpk 构建脚本
 ├── .github/workflows/docker.yml # 打 tag 自动构建镜像(GHCR) + fpk 并附到 Release
+├── tools/                       # 前端自测脚本（node，非构建依赖）
 ├── Dockerfile                   # 两阶段构建（golang → alpine）
 ├── docker-compose.yml
 └── data/                        # 运行时数据（instances/*.toml、state.json）

@@ -158,9 +158,9 @@
   .modal-close { border: none; background: none; font-size: 20px; color: var(--text2); line-height: 1; }
   .modal-body { padding: 18px 22px; overflow: auto; display: flex; flex-direction: column; gap: 12px; }
   .modal-body label { font-size: 13px; font-weight: 500; display: block; margin-bottom: 5px; }
-  .modal-body input {
+  .modal-body input, .modal-body select {
     width: 100%; border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px;
-    font-size: 14px; font-family: inherit;
+    font-size: 14px; font-family: inherit; background: var(--card); color: var(--text);
   }
   .modal-body input[type=checkbox] { width: auto; padding: 0; margin: 0; }
   .modal-body input:focus, textarea:focus { outline: 2px solid rgba(37,99,235,.25); border-color: var(--accent); }
@@ -171,6 +171,23 @@
     font-size: 12.5px; line-height: 1.6; resize: vertical; color: var(--text);
   }
   .modal-foot { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 10px; }
+
+  /* 新建实例：表单 / TOML 两种录入方式 */
+  .seg { display: flex; gap: 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 9px; padding: 3px; width: fit-content; }
+  .seg button {
+    border: none; background: none; color: var(--text2); font-family: inherit;
+    font-size: 13px; padding: 5px 16px; border-radius: 6px; white-space: nowrap;
+  }
+  .seg button.active { background: var(--card); color: var(--text); font-weight: 550; box-shadow: var(--shadow); }
+  #form-mode { display: flex; flex-direction: column; gap: 12px; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .form-grid .full { grid-column: 1 / -1; }
+  .form-grid label { display: block; font-size: 12.5px; font-weight: 500; margin-bottom: 5px; }
+  .proxy-box { border: 1px solid var(--border); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .proxy-box-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .proxy-box-head b { font-size: 13px; }
+  .proxy-box-head .btn { padding: 3px 9px; font-size: 12px; }
+  .row-del { border: none; background: none; color: var(--red); font-size: 12.5px; padding: 3px 6px; flex: none; }
 
 
   .login-mask {
@@ -215,6 +232,8 @@
     main { padding: 16px 16px 60px; }
     .card { padding: 14px; }
     .toast { max-width: calc(100vw - 40px); }
+    .form-grid { grid-template-columns: 1fr; }
+    .modal-body { padding: 16px 14px; }
   }
 </style>
 </head>
@@ -252,12 +271,43 @@
       <button class="modal-close" id="modal-close">✕</button>
     </div>
     <div class="modal-body">
+      <div class="seg" id="mode-seg">
+        <button type="button" id="mode-form">表单</button>
+        <button type="button" id="mode-toml">TOML</button>
+      </div>
       <div id="name-field">
         <label>实例名称</label>
         <input id="inst-name" placeholder="例如：家里的小狗" maxlength="64">
         <div class="hint">支持中文、字母、数字、空格及 . _ -，最长 64 字符；将作为配置文件名保存，可随时重命名。</div>
       </div>
-      <div>
+
+      <div id="form-mode">
+        <div class="form-grid">
+          <div>
+            <label for="f-server">服务端地址 *</label>
+            <input id="f-server" placeholder="frps 地址，如 1.2.3.4">
+          </div>
+          <div>
+            <label for="f-port">服务端端口 *</label>
+            <input id="f-port" inputmode="numeric" value="7000">
+          </div>
+          <div class="full">
+            <label for="f-token">认证 Token（可选）</label>
+            <input id="f-token" placeholder="与服务端 auth.token 一致，留空表示不启用">
+          </div>
+          <div class="full">
+            <label class="check-row"><input type="checkbox" id="f-retry" checked> 连接失败后保持重试（loginFailExit = false）</label>
+          </div>
+        </div>
+        <div>
+          <label>代理</label>
+          <div id="proxy-rows" style="display:flex;flex-direction:column;gap:10px"></div>
+          <button type="button" class="btn" id="add-proxy" style="margin-top:10px">＋ 添加代理</button>
+        </div>
+        <div class="hint">需要 TLS / transport / 访问器等高级配置时，请切到「TOML」模式。</div>
+      </div>
+
+      <div id="toml-mode">
         <label>frpc 配置（TOML）</label>
         <textarea id="inst-config" spellcheck="false"></textarea>
         <div class="hint">保存时会做完整校验；若实例正在运行，保存后自动重启生效。配置项参考
@@ -270,6 +320,52 @@
     </div>
   </div>
 </div>
+
+<template id="proxy-tpl">
+  <div class="proxy-box">
+    <div class="proxy-box-head">
+      <b>代理</b>
+      <button type="button" class="row-del" title="删除此代理">删除</button>
+    </div>
+    <div class="form-grid">
+      <div>
+        <label>代理名称 *</label>
+        <input class="f-name" placeholder="如 web">
+      </div>
+      <div>
+        <label>类型</label>
+        <select class="f-type">
+          <option>tcp</option><option>udp</option><option>http</option><option>https</option>
+          <option>stcp</option><option>sudp</option><option>xtcp</option><option>tcpmux</option>
+        </select>
+      </div>
+      <div>
+        <label>本地地址</label>
+        <input class="f-localIP" value="127.0.0.1">
+      </div>
+      <div>
+        <label>本地端口 *</label>
+        <input class="f-localPort" inputmode="numeric" placeholder="如 8080">
+      </div>
+      <div class="w-remotePort">
+        <label>远程端口 *</label>
+        <input class="f-remotePort" inputmode="numeric" placeholder="如 6001">
+      </div>
+      <div class="w-customDomains">
+        <label>自定义域名</label>
+        <input class="f-customDomains" placeholder="多个用逗号分隔">
+      </div>
+      <div class="w-subdomain">
+        <label>子域名</label>
+        <input class="f-subdomain">
+      </div>
+      <div class="w-secretKey">
+        <label>密钥</label>
+        <input class="f-secretKey" placeholder="stcp/sudp/xtcp 密钥">
+      </div>
+    </div>
+  </div>
+</template>
 
 <div class="modal-mask" id="log-mask">
   <div class="modal">
@@ -487,10 +583,170 @@ async function del(name) {
   await refresh();
 }
 
-function openModal(title, { name = '', config = TEMPLATE } = {}) {
+// ---------- 表单 → TOML ----------
+// 生成逻辑是纯函数，不碰 DOM；tools/check-form.js 会提取下面这一段做自测。
+// ==== form-toml:start ====
+const tomlStr = (s) => '"' + String(s).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+
+function portNum(v) {
+  return /^\d+$/.test(String(v)) && +v >= 1 && +v <= 65535 ? +v : 0;
+}
+
+// 各类型代理需要额外填写的字段
+const PROXY_EXTRA = {
+  tcp: ['remotePort'], udp: ['remotePort'], tcpmux: ['remotePort'],
+  http: ['customDomains', 'subdomain'], https: ['customDomains', 'subdomain'],
+  stcp: ['secretKey'], sudp: ['secretKey'], xtcp: ['secretKey'],
+};
+const PROXY_OPTIONAL = ['remotePort', 'customDomains', 'subdomain', 'secretKey'];
+
+// f = {serverAddr, serverPort, token, retry, proxies:[{name,type,localIP,localPort,...}]}
+// 不合法时抛错，错误信息直接展示给用户。
+function tomlFromForm(f) {
+  const serverAddr = String(f.serverAddr || '').trim();
+  if (!serverAddr) throw new Error('请填写服务端地址');
+  const serverPort = portNum(f.serverPort);
+  if (!serverPort) throw new Error('服务端端口需为 1-65535');
+
+  const proxies = f.proxies || [];
+  if (!proxies.length) throw new Error('请至少添加一个代理');
+
+  let out = `serverAddr = ${tomlStr(serverAddr)}\nserverPort = ${serverPort}\n`;
+  const token = String(f.token || '').trim();
+  if (token) out += `auth.token = ${tomlStr(token)}\n`;
+  if (f.retry) out += 'loginFailExit = false\n';
+
+  const seen = new Set();
+  for (const p of proxies) {
+    const type = p.type || 'tcp';
+    const name = String(p.name || '').trim();
+    if (!name) throw new Error('代理名称不能为空');
+    if (seen.has(name)) throw new Error(`代理名称重复：${name}`);
+    seen.add(name);
+    const localPort = portNum(p.localPort);
+    if (!localPort) throw new Error(`代理「${name}」的本地端口需为 1-65535`);
+
+    out += `\n[[proxies]]\nname = ${tomlStr(name)}\ntype = ${tomlStr(type)}\n`;
+    const localIP = String(p.localIP || '').trim();
+    if (localIP) out += `localIP = ${tomlStr(localIP)}\n`;
+    out += `localPort = ${localPort}\n`;
+
+    const extra = PROXY_EXTRA[type] || [];
+    if (extra.includes('remotePort')) {
+      const remotePort = portNum(p.remotePort);
+      if (!remotePort) throw new Error(`代理「${name}」的远程端口需为 1-65535`);
+      out += `remotePort = ${remotePort}\n`;
+    }
+    if (extra.includes('customDomains')) {
+      const domains = String(p.customDomains || '').split(',').map(s => s.trim()).filter(Boolean);
+      if (domains.length) out += `customDomains = [${domains.map(tomlStr).join(', ')}]\n`;
+      const subdomain = String(p.subdomain || '').trim();
+      if (subdomain) out += `subdomain = ${tomlStr(subdomain)}\n`;
+    }
+    if (extra.includes('secretKey')) {
+      const secretKey = String(p.secretKey || '').trim();
+      if (secretKey) out += `secretKey = ${tomlStr(secretKey)}\n`;
+    }
+  }
+  return out;
+}
+// ==== form-toml:end ====
+
+let modalMode = 'toml';   // 编辑已有实例只用 TOML
+let formDirty = false;    // 表单是否被改过（决定切到 TOML 时是否覆盖）
+let tomlDirty = false;    // TOML 是否被手改过
+
+function addProxyRow(data = {}) {
+  const box = $('proxy-tpl').content.firstElementChild.cloneNode(true);
+  for (const k of ['name', 'localIP', 'localPort', 'remotePort', 'customDomains', 'subdomain', 'secretKey']) {
+    if (data[k] !== undefined) box.querySelector('.f-' + k).value = data[k];
+  }
+  box.querySelector('.f-type').value = data.type || 'tcp';
+  box.querySelector('.f-type').onchange = () => syncProxyFields(box);
+  box.querySelector('.row-del').onclick = () => { box.remove(); renumberProxies(); formDirty = true; };
+  $('proxy-rows').appendChild(box);
+  syncProxyFields(box);
+  renumberProxies();
+}
+
+// 多代理时用序号区分每个框，避免都叫「代理」
+function renumberProxies() {
+  [...$('proxy-rows').children].forEach((box, i) => {
+    box.querySelector('.proxy-box-head b').textContent = '代理 ' + (i + 1);
+  });
+}
+
+function syncProxyFields(box) {
+  const show = PROXY_EXTRA[box.querySelector('.f-type').value] || [];
+  for (const f of PROXY_OPTIONAL) {
+    box.querySelector('.w-' + f).style.display = show.includes(f) ? '' : 'none';
+  }
+}
+
+function readForm() {
+  const value = (el) => el.value;
+  return {
+    serverAddr: value($('f-server')),
+    serverPort: value($('f-port')),
+    token: value($('f-token')),
+    retry: $('f-retry').checked,
+    proxies: [...$('proxy-rows').children].map(box => {
+      const proxy = { type: box.querySelector('.f-type').value };
+      for (const k of ['name', 'localIP', 'localPort', 'remotePort', 'customDomains', 'subdomain', 'secretKey']) {
+        proxy[k] = value(box.querySelector('.f-' + k));
+      }
+      return proxy;
+    }),
+  };
+}
+
+function buildToml() { return tomlFromForm(readForm()); }
+
+function renderMode() {
+  const form = modalMode === 'form';
+  $('mode-form').classList.toggle('active', form);
+  $('mode-toml').classList.toggle('active', !form);
+  $('form-mode').style.display = form ? '' : 'none';
+  $('toml-mode').style.display = form ? 'none' : '';
+}
+
+function setMode(mode) {
+  if (mode === modalMode) return;
+  if (mode === 'toml') {
+    // 表单未被改动（如刚打开就切走）时保留原有 TOML，不覆盖
+    if (!formDirty) { modalMode = mode; renderMode(); return; }
+    // 表单有内容才重新生成；生成失败就留在表单模式并提示缺什么
+    try {
+      $('inst-config').value = buildToml();
+      tomlDirty = false;
+    } catch (e) {
+      toast('表单未填写完整：' + e.message, 'error');
+      return;
+    }
+  } else if (tomlDirty) {
+    if (!confirm('切回表单后保存将按表单字段重新生成配置，TOML 中手动添加的内容会丢失。继续？')) return;
+    tomlDirty = false;
+  }
+  modalMode = mode;
+  renderMode();
+}
+
+function openModal(title, { name = '', config = TEMPLATE, mode = 'toml' } = {}) {
   $('modal-title').textContent = title;
   $('inst-name').value = name;
   $('inst-config').value = config;
+  $('f-server').value = '';
+  $('f-port').value = '7000';
+  $('f-token').value = '';
+  $('f-retry').checked = true;
+  $('proxy-rows').textContent = '';
+  modalMode = mode;
+  formDirty = false;
+  tomlDirty = false;
+  // 表单模式只在新建时出现：编辑已有配置时按字段重建会丢掉高级配置项
+  $('mode-seg').style.display = mode === 'form' ? '' : 'none';
+  if (mode === 'form') addProxyRow();
+  renderMode();
   $('modal-mask').classList.add('show');
   if (!name) $('inst-name').focus();
 }
@@ -509,8 +765,18 @@ async function openEdit(name) {
 
 async function save() {
   const name = $('inst-name').value.trim();
-  const config = $('inst-config').value;
   if (!name) { toast('请填写实例名称', 'error'); return; }
+  let config;
+  if (!editingName && modalMode === 'form') {
+    try {
+      config = buildToml();
+    } catch (e) {
+      toast(e.message, 'error');
+      return;
+    }
+  } else {
+    config = $('inst-config').value;
+  }
   try {
     if (editingName) {
       const renamed = name !== editingName;
@@ -559,7 +825,12 @@ $('btn-logout').onclick = async () => {
   showLogin('已退出登录');
 };
 
-$('btn-new').onclick = () => { editingName = null; openModal('新建实例'); };
+$('btn-new').onclick = () => { editingName = null; openModal('新建实例', { mode: 'form' }); };
+$('mode-form').onclick = () => setMode('form');
+$('mode-toml').onclick = () => setMode('toml');
+$('add-proxy').onclick = () => addProxyRow();
+$('form-mode').oninput = () => { formDirty = true; };
+$('inst-config').oninput = () => { tomlDirty = true; };
 $('btn-rescan').onclick = async () => {
   try {
     instances = await api('/api/reload-dir', { method: 'POST' });
