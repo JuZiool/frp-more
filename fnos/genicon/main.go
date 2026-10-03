@@ -67,9 +67,9 @@ func render(size int) image.Image {
 	}
 
 	// "F" monogram.
-	fillRect(img, 72*s, 72*s, 100*s, 184*s)   // F vertical bar
-	fillRect(img, 72*s, 72*s, 156*s, 100*s)   // F top bar
-	fillRect(img, 72*s, 128*s, 142*s, 156*s)  // F middle bar
+	fillRect(img, 72*s, 72*s, 100*s, 184*s)  // F vertical bar
+	fillRect(img, 72*s, 72*s, 156*s, 100*s)  // F top bar
+	fillRect(img, 72*s, 128*s, 142*s, 156*s) // F middle bar
 	// "+" monogram.
 	fillRect(img, 158*s, 96*s, 186*s, 184*s)  // + vertical bar
 	fillRect(img, 128*s, 126*s, 216*s, 154*s) // + horizontal bar
